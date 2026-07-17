@@ -1,0 +1,1316 @@
+{
+  "version": "1.0",
+  "diagramId": "eff3ba8f-e6a8-4f64-8092-951514f06eef",
+  "title": "Architecture Diagram",
+  "nodes": [
+    {
+      "id": "web-voice-client",
+      "type": "frontend",
+      "label": "Web Voice Client",
+      "generic_name": "Voice Client",
+      "ports": [
+        {
+          "id": "out-audio",
+          "label": "Audio Out (WebRTC)",
+          "side": "right"
+        },
+        {
+          "id": "in-audio",
+          "label": "Audio In (WebRTC)",
+          "side": "left"
+        },
+        {
+          "id": "out-auth",
+          "label": "Auth Req",
+          "side": "right"
+        },
+        {
+          "id": "in-auth",
+          "label": "Auth Res",
+          "side": "left"
+        }
+      ],
+      "data": {
+        "isolated": false,
+        "tech": [
+          "React",
+          "WebRTC SDK",
+          "Silero VAD"
+        ],
+        "description": "React frontend with WebRTC for audio and Silero VAD for local ducking.",
+        "cloud": "client-side"
+      }
+    },
+    {
+      "id": "livekit-server",
+      "type": "service",
+      "label": "LiveKit Media Server",
+      "generic_name": "Media Server",
+      "ports": [
+        {
+          "id": "in-audio-client",
+          "label": "Client Audio In",
+          "side": "left"
+        },
+        {
+          "id": "out-audio-client",
+          "label": "Client Audio Out",
+          "side": "left"
+        },
+        {
+          "id": "out-audio-stt",
+          "label": "STT Audio Out",
+          "side": "right"
+        },
+        {
+          "id": "in-audio-tts",
+          "label": "TTS Audio In",
+          "side": "right"
+        },
+        {
+          "id": "out-events",
+          "label": "Media Events",
+          "side": "right"
+        },
+        {
+          "id": "left-3",
+          "label": "Left 3",
+          "side": "left"
+        }
+      ],
+      "data": {
+        "description": "Media transport server handling WebRTC routing.",
+        "tech": [
+          "LiveKit",
+          "Go",
+          "WebRTC"
+        ],
+        "isolated": false
+      }
+    },
+    {
+      "id": "deepgram-stt",
+      "type": "service",
+      "label": "Deepgram STT",
+      "generic_name": "Speech-to-Text",
+      "ports": [
+        {
+          "id": "in-audio",
+          "label": "Audio In",
+          "side": "left"
+        },
+        {
+          "id": "out-transcript",
+          "label": "Transcript Out",
+          "side": "right"
+        }
+      ],
+      "data": {
+        "isolated": false,
+        "tech": [
+          "Deepgram Nova-3",
+          "WebSockets"
+        ],
+        "description": "Streaming speech-to-text using Nova-3 model."
+      }
+    },
+    {
+      "id": "cartesia-tts",
+      "type": "service",
+      "label": "Cartesia TTS",
+      "generic_name": "Text-to-Speech",
+      "ports": [
+        {
+          "id": "in-tts-text",
+          "label": "TTS Text In",
+          "side": "left"
+        },
+        {
+          "id": "in-tts-ctrl",
+          "label": "TTS Ctrl In",
+          "side": "left"
+        },
+        {
+          "id": "out-audio",
+          "label": "Audio Out",
+          "side": "right"
+        },
+        {
+          "id": "out-word-ts",
+          "label": "Word TS Out",
+          "side": "left"
+        },
+        {
+          "id": "right-2",
+          "label": "Right 2",
+          "side": "right"
+        }
+      ],
+      "data": {
+        "description": "Ultra-low latency TTS with word-level timestamps and immediate stop support.",
+        "tech": [
+          "Cartesia Sonic",
+          "WebSockets"
+        ],
+        "isolated": false,
+        "cloud": "external-api",
+        "scaling": "managed"
+      }
+    },
+    {
+      "id": "orchestrator",
+      "type": "service",
+      "label": "Orchestrator",
+      "generic_name": "Conversation Orchestrator",
+      "ports": [
+        {
+          "id": "in-media-events",
+          "label": "Media Events In",
+          "side": "left"
+        },
+        {
+          "id": "in-transcript",
+          "label": "Transcript In",
+          "side": "left"
+        },
+        {
+          "id": "out-safety-req",
+          "label": "Safety Req",
+          "side": "right"
+        },
+        {
+          "id": "in-safety-res",
+          "label": "Safety Res",
+          "side": "right"
+        },
+        {
+          "id": "out-cache-req",
+          "label": "Cache Req",
+          "side": "right"
+        },
+        {
+          "id": "in-cache-res",
+          "label": "Cache Res",
+          "side": "right"
+        },
+        {
+          "id": "out-llm-req",
+          "label": "LLM Req",
+          "side": "right"
+        },
+        {
+          "id": "in-llm-stream",
+          "label": "LLM Stream In",
+          "side": "right"
+        },
+        {
+          "id": "out-tts-text",
+          "label": "TTS Text Out",
+          "side": "right"
+        },
+        {
+          "id": "out-tts-ctrl",
+          "label": "TTS Ctrl Out",
+          "side": "right"
+        },
+        {
+          "id": "in-word-ts",
+          "label": "Word TS In",
+          "side": "right"
+        },
+        {
+          "id": "out-state-update",
+          "label": "State Update Out",
+          "side": "bottom"
+        },
+        {
+          "id": "in-state-update",
+          "label": "State Update In",
+          "side": "bottom"
+        },
+        {
+          "id": "out-kb-lookup",
+          "label": "KB Lookup",
+          "side": "bottom"
+        },
+        {
+          "id": "in-kb-res",
+          "label": "KB Res",
+          "side": "bottom"
+        },
+        {
+          "id": "out-telemetry",
+          "label": "Telemetry Out",
+          "side": "top"
+        },
+        {
+          "id": "left-3",
+          "label": "Left 3",
+          "side": "left"
+        },
+        {
+          "id": "left-4",
+          "label": "Left 4",
+          "side": "left"
+        },
+        {
+          "id": "left-5",
+          "label": "Left 5",
+          "side": "left"
+        },
+        {
+          "id": "left-6",
+          "label": "Left 6",
+          "side": "left"
+        },
+        {
+          "id": "left-7",
+          "label": "Left 7",
+          "side": "left"
+        },
+        {
+          "id": "left-8",
+          "label": "Left 8",
+          "side": "left"
+        },
+        {
+          "id": "left-9",
+          "label": "Left 9",
+          "side": "left"
+        }
+      ],
+      "data": {
+        "description": "Main agent brain managing state, interruption taxonomy, and LLM orchestration. Scaled horizontally via HPA with Redis-backed session affinity. Emits OTLP traces for TTFT and E2E latency.",
+        "tech": [
+          "Python 3.12+",
+          "LiveKit Agents SDK",
+          "LangGraph",
+          "Pydantic AI",
+          "Redis Streams",
+          "OpenTelemetry"
+        ],
+        "isolated": false
+      }
+    },
+    {
+      "id": "token-service",
+      "type": "service",
+      "label": "Token Service",
+      "generic_name": "Auth Service",
+      "ports": [
+        {
+          "id": "in-auth-req",
+          "label": "Auth Req In",
+          "side": "left"
+        },
+        {
+          "id": "out-auth-res",
+          "label": "Auth Res Out",
+          "side": "right"
+        },
+        {
+          "id": "left-2",
+          "label": "Left 2",
+          "side": "left"
+        }
+      ],
+      "data": {
+        "description": "FastAPI service for issuing LiveKit room tokens.",
+        "tech": [
+          "FastAPI",
+          "Python"
+        ],
+        "isolated": false
+      }
+    },
+    {
+      "id": "app-state-store-db",
+      "type": "database",
+      "label": "App State Store (Redis)",
+      "generic_name": "Main Database",
+      "ports": [
+        {
+          "id": "in-db",
+          "label": "DB In",
+          "side": "top"
+        },
+        {
+          "id": "out-db",
+          "label": "DB Out",
+          "side": "top"
+        },
+        {
+          "id": "in",
+          "label": "Input",
+          "side": "left"
+        },
+        {
+          "id": "out",
+          "label": "Output",
+          "side": "right"
+        },
+        {
+          "id": "right-2",
+          "label": "Right 2",
+          "side": "right"
+        },
+        {
+          "id": "left-2",
+          "label": "Left 2",
+          "side": "left"
+        }
+      ],
+      "data": {
+        "isolated": false,
+        "tech": [
+          "Redis"
+        ],
+        "description": "Stores core data"
+      }
+    },
+    {
+      "id": "primary-llm",
+      "type": "service",
+      "label": "Primary LLM (Groq)",
+      "generic_name": "Primary LLM",
+      "ports": [
+        {
+          "id": "in-llm-req",
+          "label": "LLM Req In",
+          "side": "left"
+        },
+        {
+          "id": "out-llm-stream",
+          "label": "LLM Stream Out",
+          "side": "right"
+        },
+        {
+          "id": "left-2",
+          "label": "Left 2",
+          "side": "left"
+        },
+        {
+          "id": "right-2",
+          "label": "Right 2",
+          "side": "right"
+        }
+      ],
+      "data": {
+        "isolated": false,
+        "tech": [
+          "Groq",
+          "Llama 3.1"
+        ],
+        "description": "Primary fast streaming LLM.",
+        "cloud": "external-api",
+        "scaling": "managed"
+      }
+    },
+    {
+      "id": "fallback-llm",
+      "type": "service",
+      "label": "Fallback LLM (OpenAI)",
+      "generic_name": "Fallback LLM",
+      "ports": [
+        {
+          "id": "in-llm-req",
+          "label": "LLM Req In",
+          "side": "left"
+        },
+        {
+          "id": "out-llm-stream",
+          "label": "LLM Stream Out",
+          "side": "right"
+        },
+        {
+          "id": "left-2",
+          "label": "Left 2",
+          "side": "left"
+        }
+      ],
+      "data": {
+        "description": "Fallback LLM for seamless failover.",
+        "tech": [
+          "OpenAI",
+          "gpt-4o-mini"
+        ],
+        "isolated": false,
+        "cloud": "external-api",
+        "scaling": "managed"
+      }
+    },
+    {
+      "id": "task-execution-service",
+      "type": "service",
+      "label": "Task Execution Service",
+      "generic_name": "Background Worker",
+      "ports": [
+        {
+          "id": "in-job",
+          "label": "Job In",
+          "side": "top"
+        },
+        {
+          "id": "out-job-status",
+          "label": "Job Status Out",
+          "side": "top"
+        },
+        {
+          "id": "out-api-req",
+          "label": "API Req Out",
+          "side": "right"
+        },
+        {
+          "id": "in-api-res",
+          "label": "API Res In",
+          "side": "right"
+        },
+        {
+          "id": "in",
+          "label": "Input",
+          "side": "left"
+        },
+        {
+          "id": "left-2",
+          "label": "Left 2",
+          "side": "left"
+        },
+        {
+          "id": "left-3",
+          "label": "Left 3",
+          "side": "left"
+        },
+        {
+          "id": "right-3",
+          "label": "Right 3",
+          "side": "right"
+        }
+      ],
+      "data": {
+        "isolated": false,
+        "tech": [
+          "Python",
+          "Celery"
+        ],
+        "description": "Background worker for non-latency-critical tasks.",
+        "scaling": "horizontal",
+        "cloud": "private-cloud"
+      }
+    },
+    {
+      "id": "observability-stack",
+      "type": "service",
+      "label": "Observability Stack",
+      "generic_name": "Monitoring",
+      "ports": [
+        {
+          "id": "in-telemetry",
+          "label": "Telemetry In",
+          "side": "bottom"
+        },
+        {
+          "id": "in",
+          "label": "Input",
+          "side": "left"
+        },
+        {
+          "id": "out",
+          "label": "Output",
+          "side": "right"
+        }
+      ],
+      "data": {
+        "description": "Centralized monitoring. Tracks: 1. VAD-to-Response Latency, 2. LLM Time-to-First-Token (TTFT), 3. STT Word Error Rate (WER) proxies, 4. Guardrail rejection rates.",
+        "tech": [
+          "Prometheus",
+          "Grafana",
+          "OpenTelemetry Collector",
+          "Loki"
+        ],
+        "isolated": true
+      }
+    },
+    {
+      "id": "load-testing-eval",
+      "type": "service",
+      "label": "Load Testing & Eval",
+      "generic_name": "Testing Suite",
+      "ports": [
+        {
+          "id": "out-load",
+          "label": "Load Out",
+          "side": "bottom"
+        },
+        {
+          "id": "in",
+          "label": "Input",
+          "side": "left"
+        },
+        {
+          "id": "out",
+          "label": "Output",
+          "side": "right"
+        }
+      ],
+      "data": {
+        "isolated": true,
+        "tech": [
+          "Locust",
+          "Python",
+          "Pytest-asyncio"
+        ],
+        "description": "Automated evaluation suite. Measures 'Time to Silence' during barge-in and 'Response Latency' under 100x concurrent load."
+      }
+    },
+    {
+      "id": "llm-semantic-cache",
+      "type": "cache",
+      "label": "LLM Semantic Cache",
+      "generic_name": "Semantic Cache",
+      "ports": [
+        {
+          "id": "in-cache-req",
+          "label": "Cache Req In",
+          "side": "left"
+        },
+        {
+          "id": "out-cache-res",
+          "label": "Cache Res Out",
+          "side": "right"
+        }
+      ],
+      "data": {
+        "description": "Stores cached LLM responses for semantic similarity lookup.",
+        "tech": [
+          "Redis VL",
+          "GPTCache"
+        ],
+        "isolated": false
+      }
+    },
+    {
+      "id": "knowledge-base-memory-db",
+      "type": "database",
+      "label": "Knowledge Base & Memory DB",
+      "generic_name": "Vector Database",
+      "ports": [
+        {
+          "id": "in-kb-req",
+          "label": "KB Req In",
+          "side": "top"
+        },
+        {
+          "id": "out-kb-res",
+          "label": "KB Res Out",
+          "side": "top"
+        },
+        {
+          "id": "in",
+          "label": "Input",
+          "side": "left"
+        },
+        {
+          "id": "out",
+          "label": "Output",
+          "side": "right"
+        },
+        {
+          "id": "left-2",
+          "label": "Left 2",
+          "side": "left"
+        }
+      ],
+      "data": {
+        "isolated": false,
+        "tech": [
+          "Pinecone",
+          "Qdrant"
+        ],
+        "description": "Vector database for long-term memory and RAG."
+      }
+    },
+    {
+      "id": "guardrails-service",
+      "type": "service",
+      "label": "AI Guardrails Service",
+      "generic_name": "Safety Layer",
+      "ports": [
+        {
+          "id": "in-safety-check",
+          "label": "Safety Check In",
+          "side": "left"
+        },
+        {
+          "id": "out-safety-res",
+          "label": "Safety Res Out",
+          "side": "right"
+        },
+        {
+          "id": "right-2",
+          "label": "Right 2",
+          "side": "right"
+        }
+      ],
+      "data": {
+        "description": "Input/Output filtering for safety, PII, and topic alignment.",
+        "tech": [
+          "NeMo Guardrails",
+          "Llama Guard 3"
+        ],
+        "isolated": false,
+        "cloud": "private-cloud",
+        "scaling": "horizontal"
+      }
+    },
+    {
+      "id": "external-apis-integration",
+      "type": "service",
+      "label": "External APIs & Tools",
+      "generic_name": "External APIs",
+      "ports": [
+        {
+          "id": "in-api",
+          "label": "API In",
+          "side": "left"
+        },
+        {
+          "id": "out-api",
+          "label": "API Out",
+          "side": "left"
+        },
+        {
+          "id": "out",
+          "label": "Output",
+          "side": "right"
+        }
+      ],
+      "data": {
+        "isolated": true,
+        "tech": [
+          "REST",
+          "GraphQL"
+        ],
+        "description": "External 3rd party services like Banking APIs or CRM systems.",
+        "cloud": "aws/gcp/azure"
+      }
+    },
+    {
+      "id": "api-gateway",
+      "type": "api-gateway",
+      "label": "API Gateway",
+      "generic_name": "main request manager",
+      "ports": [
+        {
+          "id": "in",
+          "label": "in",
+          "side": "left"
+        },
+        {
+          "id": "out",
+          "label": "Output",
+          "side": "right"
+        },
+        {
+          "id": "left-2",
+          "label": "Left 2",
+          "side": "left"
+        },
+        {
+          "id": "right-2",
+          "label": "Right 2",
+          "side": "right"
+        },
+        {
+          "id": "right-3",
+          "label": "Right 3",
+          "side": "right"
+        }
+      ],
+      "data": {
+        "description": "Routes incoming requests",
+        "tech": [
+          "API Gateway"
+        ],
+        "isolated": false
+      }
+    },
+    {
+      "id": "secrets-manager",
+      "type": "service",
+      "label": "Secrets Manager",
+      "generic_name": "Secrets Manager",
+      "ports": [
+        {
+          "id": "out-secrets",
+          "label": "Secrets Out",
+          "side": "bottom"
+        },
+        {
+          "id": "in",
+          "label": "in",
+          "side": "left"
+        },
+        {
+          "id": "out",
+          "label": "Output",
+          "side": "right"
+        }
+      ],
+      "data": {
+        "isolated": false,
+        "tech": [
+          "HashiCorp Vault",
+          "AWS Secrets Manager"
+        ],
+        "description": "Manages API keys and signing secrets for LiveKit and LLM providers."
+      }
+    },
+    {
+      "id": "consent-service",
+      "type": "service",
+      "label": "Consent & Privacy Service",
+      "generic_name": "Consent Service",
+      "ports": [
+        {
+          "id": "in-consent-req",
+          "label": "Consent Req In",
+          "side": "left"
+        },
+        {
+          "id": "out-consent-res",
+          "label": "Consent Res Out",
+          "side": "right"
+        }
+      ],
+      "data": {
+        "isolated": false,
+        "tech": [
+          "Python",
+          "Redis"
+        ],
+        "description": "Handles user consent for recording and data processing."
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "guard-to-orch-res",
+      "source": {
+        "nodeId": "guardrails-service",
+        "portId": "out-safety-res"
+      },
+      "target": {
+        "nodeId": "orchestrator",
+        "portId": "in-media-events"
+      },
+      "type": "internal-api",
+      "label": "Safety Result"
+    },
+    {
+      "id": "cache-to-orch-res",
+      "source": {
+        "nodeId": "llm-semantic-cache",
+        "portId": "out-cache-res"
+      },
+      "target": {
+        "nodeId": "orchestrator",
+        "portId": "in-transcript"
+      },
+      "type": "cache",
+      "label": "Cache Hit Stream"
+    },
+    {
+      "id": "kb-to-orch-res",
+      "source": {
+        "nodeId": "knowledge-base-memory-db",
+        "portId": "out"
+      },
+      "target": {
+        "nodeId": "orchestrator",
+        "portId": "left-3"
+      },
+      "type": "database",
+      "label": "RAG Context"
+    },
+    {
+      "id": "redis-to-task-worker",
+      "source": {
+        "nodeId": "app-state-store-db",
+        "portId": "out"
+      },
+      "target": {
+        "nodeId": "task-execution-service",
+        "portId": "in"
+      },
+      "type": "async-event",
+      "label": "Enqueue Job"
+    },
+    {
+      "id": "worker-to-kb-ingest",
+      "source": {
+        "nodeId": "task-execution-service",
+        "portId": "out-api-req"
+      },
+      "target": {
+        "nodeId": "knowledge-base-memory-db",
+        "portId": "in"
+      },
+      "type": "database",
+      "label": "Vector Ingest"
+    },
+    {
+      "id": "load-test-to-livekit",
+      "source": {
+        "nodeId": "load-testing-eval",
+        "portId": "out"
+      },
+      "target": {
+        "nodeId": "livekit-server",
+        "portId": "in-audio-client"
+      },
+      "type": "http",
+      "label": "Simulated Load"
+    },
+    {
+      "id": "redis-to-orch-state",
+      "source": {
+        "nodeId": "app-state-store-db",
+        "portId": "right-2"
+      },
+      "target": {
+        "nodeId": "orchestrator",
+        "portId": "left-4"
+      },
+      "type": "database",
+      "label": null
+    },
+    {
+      "id": "api-to-worker-res",
+      "source": {
+        "nodeId": "external-apis-integration",
+        "portId": "out"
+      },
+      "target": {
+        "nodeId": "task-execution-service",
+        "portId": "left-2"
+      },
+      "type": "http",
+      "label": null
+    },
+    {
+      "id": "web-to-gw-auth",
+      "source": {
+        "nodeId": "web-voice-client",
+        "portId": "out-audio"
+      },
+      "target": {
+        "nodeId": "api-gateway",
+        "portId": "in"
+      },
+      "type": "http",
+      "label": null
+    },
+    {
+      "id": "gw-to-consent",
+      "source": {
+        "nodeId": "api-gateway",
+        "portId": "out"
+      },
+      "target": {
+        "nodeId": "consent-service",
+        "portId": "in-consent-req"
+      },
+      "type": "http",
+      "label": null
+    },
+    {
+      "id": "consent-to-token",
+      "source": {
+        "nodeId": "consent-service",
+        "portId": "out-consent-res"
+      },
+      "target": {
+        "nodeId": "token-service",
+        "portId": "in-auth-req"
+      },
+      "type": "http",
+      "label": null
+    },
+    {
+      "id": "token-to-gw",
+      "source": {
+        "nodeId": "token-service",
+        "portId": "out-auth-res"
+      },
+      "target": {
+        "nodeId": "api-gateway",
+        "portId": "left-2"
+      },
+      "type": "http",
+      "label": null
+    },
+    {
+      "id": "gw-to-web-auth",
+      "source": {
+        "nodeId": "api-gateway",
+        "portId": "right-2"
+      },
+      "target": {
+        "nodeId": "web-voice-client",
+        "portId": "in-audio"
+      },
+      "type": "http",
+      "label": null
+    },
+    {
+      "id": "web-to-livekit-audio",
+      "source": {
+        "nodeId": "web-voice-client",
+        "portId": "out-auth"
+      },
+      "target": {
+        "nodeId": "livekit-server",
+        "portId": "out-audio-client"
+      },
+      "type": "websocket",
+      "label": null
+    },
+    {
+      "id": "livekit-to-web-audio",
+      "source": {
+        "nodeId": "livekit-server",
+        "portId": "out-audio-stt"
+      },
+      "target": {
+        "nodeId": "web-voice-client",
+        "portId": "in-auth"
+      },
+      "type": "websocket",
+      "label": null
+    },
+    {
+      "id": "livekit-to-stt-audio",
+      "source": {
+        "nodeId": "livekit-server",
+        "portId": "in-audio-tts"
+      },
+      "target": {
+        "nodeId": "deepgram-stt",
+        "portId": "in-audio"
+      },
+      "type": "websocket",
+      "label": null
+    },
+    {
+      "id": "stt-to-orch-transcript",
+      "source": {
+        "nodeId": "deepgram-stt",
+        "portId": "out-transcript"
+      },
+      "target": {
+        "nodeId": "orchestrator",
+        "portId": "left-5"
+      },
+      "type": "websocket",
+      "label": null
+    },
+    {
+      "id": "livekit-to-orch-events",
+      "source": {
+        "nodeId": "livekit-server",
+        "portId": "out-events"
+      },
+      "target": {
+        "nodeId": "orchestrator",
+        "portId": "left-6"
+      },
+      "type": "grpc",
+      "label": null
+    },
+    {
+      "id": "orch-to-guard-req",
+      "source": {
+        "nodeId": "orchestrator",
+        "portId": "out-safety-req"
+      },
+      "target": {
+        "nodeId": "guardrails-service",
+        "portId": "in-safety-check"
+      },
+      "type": "internal-api",
+      "label": null
+    },
+    {
+      "id": "orch-to-cache-req",
+      "source": {
+        "nodeId": "orchestrator",
+        "portId": "in-safety-res"
+      },
+      "target": {
+        "nodeId": "llm-semantic-cache",
+        "portId": "in-cache-req"
+      },
+      "type": "cache",
+      "label": null
+    },
+    {
+      "id": "orch-to-kb-req",
+      "source": {
+        "nodeId": "orchestrator",
+        "portId": "out-cache-req"
+      },
+      "target": {
+        "nodeId": "knowledge-base-memory-db",
+        "portId": "left-2"
+      },
+      "type": "database",
+      "label": null
+    },
+    {
+      "id": "orch-to-llm-req",
+      "source": {
+        "nodeId": "orchestrator",
+        "portId": "in-cache-res"
+      },
+      "target": {
+        "nodeId": "primary-llm",
+        "portId": "in-llm-req"
+      },
+      "type": "internal-api",
+      "label": null
+    },
+    {
+      "id": "llm-to-orch-stream",
+      "source": {
+        "nodeId": "primary-llm",
+        "portId": "out-llm-stream"
+      },
+      "target": {
+        "nodeId": "orchestrator",
+        "portId": "left-7"
+      },
+      "type": "internal-api",
+      "label": null
+    },
+    {
+      "id": "orch-to-fallback-req",
+      "source": {
+        "nodeId": "orchestrator",
+        "portId": "out-llm-req"
+      },
+      "target": {
+        "nodeId": "fallback-llm",
+        "portId": "in-llm-req"
+      },
+      "type": "internal-api",
+      "label": null
+    },
+    {
+      "id": "fallback-to-orch-stream",
+      "source": {
+        "nodeId": "fallback-llm",
+        "portId": "out-llm-stream"
+      },
+      "target": {
+        "nodeId": "orchestrator",
+        "portId": "left-8"
+      },
+      "type": "internal-api",
+      "label": null
+    },
+    {
+      "id": "orch-to-tts-ctrl-signal",
+      "source": {
+        "nodeId": "orchestrator",
+        "portId": "in-llm-stream"
+      },
+      "target": {
+        "nodeId": "cartesia-tts",
+        "portId": "in-tts-text"
+      },
+      "type": "internal-api",
+      "label": "Kill Signal"
+    },
+    {
+      "id": "tts-to-livekit-audio",
+      "source": {
+        "nodeId": "cartesia-tts",
+        "portId": "out-audio"
+      },
+      "target": {
+        "nodeId": "livekit-server",
+        "portId": "left-3"
+      },
+      "type": "websocket",
+      "label": null
+    },
+    {
+      "id": "tts-to-orch-ts",
+      "source": {
+        "nodeId": "cartesia-tts",
+        "portId": "right-2"
+      },
+      "target": {
+        "nodeId": "orchestrator",
+        "portId": "left-9"
+      },
+      "type": "websocket",
+      "label": null
+    },
+    {
+      "id": "orch-to-redis-state",
+      "source": {
+        "nodeId": "orchestrator",
+        "portId": "out-tts-text"
+      },
+      "target": {
+        "nodeId": "app-state-store-db",
+        "portId": "in"
+      },
+      "type": "database",
+      "label": null
+    },
+    {
+      "id": "orch-to-worker-job",
+      "source": {
+        "nodeId": "orchestrator",
+        "portId": "out-tts-ctrl"
+      },
+      "target": {
+        "nodeId": "task-execution-service",
+        "portId": "left-3"
+      },
+      "type": "async-event",
+      "label": null
+    },
+    {
+      "id": "worker-to-api-req",
+      "source": {
+        "nodeId": "task-execution-service",
+        "portId": "in-api-res"
+      },
+      "target": {
+        "nodeId": "external-apis-integration",
+        "portId": "in-api"
+      },
+      "type": "http",
+      "label": null
+    },
+    {
+      "id": "orch-to-obs-telemetry",
+      "source": {
+        "nodeId": "orchestrator",
+        "portId": "in-word-ts"
+      },
+      "target": {
+        "nodeId": "observability-stack",
+        "portId": "in"
+      },
+      "type": "internal-api",
+      "label": null
+    },
+    {
+      "id": "secrets-to-token-keys",
+      "source": {
+        "nodeId": "secrets-manager",
+        "portId": "out"
+      },
+      "target": {
+        "nodeId": "token-service",
+        "portId": "left-2"
+      },
+      "type": "internal-api",
+      "label": null
+    },
+    {
+      "id": "96933f26-89e2-4676-bac0-97de39d977a0",
+      "source": {
+        "nodeId": "api-gateway",
+        "portId": "right-3"
+      },
+      "target": {
+        "nodeId": "secrets-manager",
+        "portId": "in"
+      },
+      "type": "internal-api",
+      "label": "internal-api"
+    },
+    {
+      "id": "worker-to-redis-status",
+      "source": {
+        "nodeId": "task-execution-service",
+        "portId": "right-3"
+      },
+      "target": {
+        "nodeId": "app-state-store-db",
+        "portId": "left-2"
+      },
+      "type": "database",
+      "label": "Job Status Update"
+    }
+  ],
+  "groups": [
+    {
+      "children": [
+        "api-gateway",
+        "token-service",
+        "secrets-manager",
+        "consent-service"
+      ],
+      "id": "edge-layer",
+      "label": "Edge & Auth Layer"
+    },
+    {
+      "children": [
+        "livekit-server",
+        "deepgram-stt",
+        "cartesia-tts"
+      ],
+      "id": "media-layer",
+      "label": "Real-Time Media Layer"
+    },
+    {
+      "children": [
+        "orchestrator",
+        "guardrails-service",
+        "primary-llm",
+        "fallback-llm",
+        "task-execution-service"
+      ],
+      "id": "intelligence-layer",
+      "label": "Intelligence & Orchestration Layer"
+    },
+    {
+      "children": [
+        "app-state-store-db",
+        "llm-semantic-cache",
+        "knowledge-base-memory-db"
+      ],
+      "id": "data-layer",
+      "label": "Data & Memory Layer"
+    },
+    {
+      "children": [
+        "observability-stack",
+        "load-testing-eval"
+      ],
+      "id": "ops-layer",
+      "label": "Operations & Observability Layer"
+    },
+    {
+      "children": [
+        "web-voice-client"
+      ],
+      "id": "client-layer",
+      "label": "Client Layer"
+    },
+    {
+      "children": [
+        "external-apis-integration"
+      ],
+      "id": "external-layer",
+      "label": "External Systems Layer"
+    }
+  ],
+  "metadata": {}
+}

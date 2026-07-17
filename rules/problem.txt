@@ -1,0 +1,4 @@
+Problem Statement 3 - Interruption-Aware Voice Agent
+Build a real-time voice agent that can be naturally interrupted mid-response, gracefully stop generation, 
+incorporate the interruption into context, and resume or adjust the conversation coherently-not just perform barge-in detection.
+ Demonstrate the system through a live multi-turn conversation containing at least three natural interruptions.

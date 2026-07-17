@@ -1,0 +1,39 @@
+# =============================================================================
+# Pivot — Python dependencies, grouped by the phase that first needs them.
+# Install incrementally as you reach each phase, not all at once — if a
+# phase-N test needs a package not yet installed, that's a signal you're
+# building ahead of the current phase.
+# =============================================================================
+
+# --- Phase 0 ---
+pytest
+python-dotenv
+
+# --- Phase 1 ---
+# fastapi
+# uvicorn
+# livekit-server-sdk
+# deepgram-sdk
+# cartesia
+# groq
+
+# --- Phase 2 ---
+# redis
+
+# --- Phase 3 ---
+# (client-side: onnxruntime-web via npm, not pip — see client/src/vad)
+
+# --- Phase 6 ---
+# celery
+
+# --- Phase 7 ---
+# openai
+
+# --- Phase 8 (feature-flagged) ---
+# qdrant-client
+# mastra-sdk        # placeholder name — confirm actual package at Phase 8
+# enkrypt-sdk        # placeholder name — confirm actual package at Phase 8
+
+# --- Phase 9 ---
+# opentelemetry-sdk
+# locust             # load-testing-eval service

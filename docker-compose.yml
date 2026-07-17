@@ -1,0 +1,40 @@
+# =============================================================================
+# Pivot — local development dependencies
+# =============================================================================
+# Phase 0: Redis only — everything else stays commented until its phase lands.
+# Uncomment blocks only when the corresponding phase prompt (see PHASE_PROMPTS.md)
+# is actually being executed, not before. This keeps `docker-compose up` honest
+# about what's really been built.
+# =============================================================================
+version: "3.9"
+
+services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    # Backs: session/turn state (Phase 2), semantic cache (Phase 7), task job queue (Phase 6)
+
+  # ---------------------------------------------------------------------------
+  # Phase 8 — Qdrant (RAG / knowledge base), only when RAG_ENABLED=true
+  # ---------------------------------------------------------------------------
+  # qdrant:
+  #   image: qdrant/qdrant:latest
+  #   ports:
+  #     - "6333:6333"
+
+  # ---------------------------------------------------------------------------
+  # Phase 9 — Observability stack
+  # ---------------------------------------------------------------------------
+  # prometheus:
+  #   image: prom/prometheus:latest
+  #   ports:
+  #     - "9090:9090"
+  # grafana:
+  #   image: grafana/grafana:latest
+  #   ports:
+  #     - "3001:3000"
+  # loki:
+  #   image: grafana/loki:latest
+  #   ports:
+  #     - "3100:3100"

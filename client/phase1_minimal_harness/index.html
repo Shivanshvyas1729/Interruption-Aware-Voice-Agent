@@ -1,0 +1,34 @@
+<!--
+  phase1_minimal_harness/index.html — Phase 1 deliverable.
+
+  PURPOSE
+  -------
+  Minimal browser page to validate the full voice round-trip end to end:
+  mic -> LiveKit room -> (server side: Deepgram STT -> orchestrator ->
+  Groq LLM -> Cartesia TTS) -> LiveKit -> speaker. No VAD, no barge-in,
+  no UI polish. Single button: "Join session".
+
+  WHAT TO IMPLEMENT
+  ------------------
+  1. Load the LiveKit client SDK (script tag, no bundler needed at this stage).
+  2. "Join" button: fetch a LiveKit access token from the (stub) API Gateway
+     / token-service endpoint, connect to the room, publish local mic track.
+  3. Subscribe to the agent's audio track and play it through an <audio> tag.
+  4. A visible log panel on the page mirroring the structured log events the
+     server emits for this turn (stt_final, llm_complete, tts_first_audio,
+     turn_total_ms) — makes the pipeline's behavior visible while debugging,
+     per the project rule "so I can see changes hand to hand".
+
+  RELATED
+  -------
+  - services/media-gateway/room_manager.py (Phase 1) — server-side counterpart.
+  - tests/phase1/test_single_turn.py — the automated (fixture-based) version
+    of what this page proves manually.
+-->
+<!DOCTYPE html>
+<html>
+  <head><title>Pivot — Phase 1 Test Harness</title></head>
+  <body>
+    <!-- TODO(phase-1): join button, audio element, log panel -->
+  </body>
+</html>
