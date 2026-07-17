@@ -1,47 +1,60 @@
-"""
-api_gateway.py — Phase 1 deliverable (routing), Phase 10 hardened (auth
-enforcement + rate limiting).
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
+from services.edge_auth.consent_service import check_consent
+from services.edge_auth.token_service import issue_token
+from common.logging.logger import get_logger
 
-CORRECTED WIRING
------------------
-    web-client.out-auth -> api-gateway.in
-    api-gateway.out -> consent-service.in-consent-req
-    token-service.out-auth-res -> api-gateway (generic inbound port)
-    api-gateway -> web-client.in-auth
-    api-gateway -> secrets-manager.in   (internal-api, for signing keys)
+logger = get_logger("api-gateway")
+app = FastAPI(title="API Gateway")
 
-(the original uploaded architecture JSON sourced the client->gateway edge
-from out-audio instead of out-auth, and the gateway->client return edge
-targeted in-audio instead of in-auth — see docs/pivot-build-plan.md
-section 0)
+class AuthRequest(BaseModel):
+    session_id: str
+    room_name: str
 
-WHAT TO IMPLEMENT (Phase 1)
-------------------------------
-- POST /auth: receives the client's auth request, forwards to
-  consent_service.check_consent(), then on approval routes to
-  token_service.issue_token() and returns the LiveKit room token to the
-  client. This is what client/phase1_minimal_harness/app.js's
-  connectToRoom(token) actually calls to get a token in the first place —
-  wire this before Phase 1's single-turn test can run against a real (not
-  hardcoded) token.
+@app.post("/auth")
+async def auth_route(req: AuthRequest):
+    """Receive authentication requests, check consent, issue room token."""
+    logger.log(
+        event_name="auth_request_received",
+        session_id=req.session_id,
+        turn_id="system",
+        detail={"room_name": req.room_name}
+    )
+    
+    # Check user consent
+    consent_approved = check_consent(req.session_id)
+    if not consent_approved:
+        logger.log(
+            event_name="auth_request_routed",
+            session_id=req.session_id,
+            turn_id="system",
+            detail={"outcome": "consent_denied"}
+        )
+        raise HTTPException(status_code=403, detail="Consent denied")
+        
+    # Issue LiveKit room token
+    try:
+        token = issue_token(req.session_id, req.room_name)
+        logger.log(
+            event_name="auth_request_routed",
+            session_id=req.session_id,
+            turn_id="system",
+            detail={"outcome": "success"}
+        )
+        return {"token": token}
+    except Exception as e:
+        logger.log(
+            event_name="auth_request_routed",
+            session_id=req.session_id,
+            turn_id="system",
+            detail={"outcome": f"failed: {str(e)}"}
+        )
+        raise HTTPException(status_code=500, detail=str(e))
 
-WHAT TO IMPLEMENT (Phase 10)
---------------------------------
-- Enforce auth on every non-/auth, non-/health route.
-- Rate limiting per session_id / IP.
+@app.get("/health")
+async def health():
+    return {"status": "healthy"}
 
-LOG EVENTS
-----------
-- auth_request_received { session_id }
-- auth_request_routed   { session_id, outcome }
-
-RELATED
--------
-- services/edge-auth/consent_service.py
-- services/edge-auth/token_service.py
-- tests/phase1/test_single_turn.py (should exercise this path, not bypass it)
-- tests/phase10/test_security_checklist.py
-"""
-
-# TODO(phase-1): implement POST /auth routing to consent_service + token_service
-# TODO(phase-10): implement auth enforcement + rate limiting
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8003)

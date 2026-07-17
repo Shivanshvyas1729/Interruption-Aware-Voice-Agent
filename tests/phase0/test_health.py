@@ -5,6 +5,7 @@ import urllib.request
 import sys
 import importlib.util
 import pytest
+import time
 
 # Ensure environments are configured for test duration
 os.environ["ACTIVE_PHASE"] = "0"
@@ -36,12 +37,15 @@ def test_all_services_healthy_and_log_startup(capsys):
     servers = [orch_server, media_server, worker_server]
     threads = []
     for server in servers:
-        t = threading.Thread(target=server.serve_forever, daemon=True)
+        target = server.serve_forever if hasattr(server, "serve_forever") else server.run
+        t = threading.Thread(target=target, daemon=True)
         t.start()
         threads.append(t)
         
     # Query health check endpoints
     try:
+        # Give Uvicorn server a brief moment to bind
+        time.sleep(0.3)
         for port, name in [(8000, "orchestrator"), (8001, "media-gateway"), (8002, "task-worker")]:
             with urllib.request.urlopen(f"http://127.0.0.1:{port}/health", timeout=2) as response:
                 assert response.status == 200
@@ -50,8 +54,14 @@ def test_all_services_healthy_and_log_startup(capsys):
     finally:
         # Shutdown servers cleanly
         for server in servers:
-            server.shutdown()
-            server.server_close()
+            if hasattr(server, "server_close"):
+                try:
+                    server.shutdown()
+                    server.server_close()
+                except Exception:
+                    pass
+            else:
+                server.should_exit = True
             
     # Capture written logs
     captured = capsys.readouterr()

@@ -1,38 +1,82 @@
-"""
-fsm.py — orchestrator control-plane state machine.
+from common.logging.logger import get_logger
+from services.orchestrator.llm_client import call_primary
+from services.orchestrator.tts_client import speak as tts_speak
+import time
 
-Grows across nearly every phase; this file's docstring is a map of exactly
-which phase adds which state/transition so it doesn't turn into an
-unreadable pile later.
+logger = get_logger("orchestrator")
 
-Phase 1  : states {idle, listening, thinking, speaking}. On in-transcript,
-           call llm_client directly (no cache/guardrails/memory yet), then
-           tts_client. Single-turn only.
-Phase 2  : add state_store.py read/write around every transition so
-           conversation history survives across turns and process restarts.
-Phase 3  : add {interrupted} state. On barge_in.py signaling a sustained
-           interruption, transition speaking -> interrupted, fire
-           out-tts-ctrl kill signal.
-Phase 4  : interrupted state gains a sub-classification step
-           (interruption_classifier.py) before deciding what happens next.
-Phase 5  : context_merge.py determines the transition out of `interrupted`
-           — back to thinking (resume/pivot) or back to idle (abandon).
-Phase 6  : add {calling_tool} state with the mid-call interruption policy
-           table (see tools.py and docs/pivot-build-plan.md "Open Decisions").
-Phase 7  : thinking state gains silent primary->fallback LLM failover
-           (failover.py) and a cache-check sub-step (cache_client.py)
-           before hitting the LLM at all.
-Phase 8  : thinking state gains guardrails_client.py (input/output safety
-           check) and rag_client.py (KB grounding) sub-steps, both
-           feature-flagged.
-Phase 9  : every transition gets wrapped with the failure-mode handling
-           from the PRD's failure-mode table (STT drop, double
-           interruption, both LLMs down, VAD false positive, ...).
+class VoiceAgentFSM:
+    def __init__(self, session_id: str):
+        self.session_id = session_id
+        self.state = "idle"
+        self.turn_id = 0
+        self.turn_start_time = 0.0
 
-LOG EVENTS THIS MODULE IS RESPONSIBLE FOR (cumulative across phases)
-------------------------------------------------------------------------
-- turn_started / turn_total_ms   (Phase 1)
-- state_transition { from, to }  (Phase 1, useful from day one for debugging)
-"""
+    def transition(self, target_state: str):
+        """Transition FSM to target_state and log state_transition."""
+        old_state = self.state
+        self.state = target_state
+        logger.log(
+            event_name="state_transition",
+            session_id=self.session_id,
+            turn_id=str(self.turn_id),
+            detail={"from": old_state, "to": target_state}
+        )
 
-# TODO(phase-1): implement the Phase 1 subset of the state machine described above
+    def handle_media_event(self, kind: str, detail: dict):
+        """React to room-level participant and audio status events."""
+        if kind == "participant_joined":
+            if self.state == "idle":
+                self.transition("listening")
+
+    def receive_transcript(self, transcript: str):
+        """Main turn-processing loop triggered by STT transcripts."""
+        self.turn_id += 1
+        self.turn_start_time = time.time()
+        
+        # Idle/Listening -> Thinking
+        self.transition("thinking")
+        
+        # 1. Load history from Redis/State Store
+        from services.orchestrator.state_store import load_history, save_turn
+        history = load_history(self.session_id)
+        
+        # 2. Append user's transcript as a new user message
+        history.append({"role": "user", "content": transcript})
+        
+        # Save user turn to state store
+        save_turn(self.session_id, str(self.turn_id), "user", transcript)
+        
+        # 3. Call LLM with the complete history list
+        reply_text = call_primary(self.session_id, str(self.turn_id), history)
+        
+        # 4. Save agent's reply to state store
+        save_turn(self.session_id, str(self.turn_id), "assistant", reply_text)
+        
+        # Thinking -> Speaking
+        self.transition("speaking")
+        
+        # Invoke TTS (Cartesia)
+        audio_bytes = tts_speak(self.session_id, str(self.turn_id), reply_text)
+        
+        # Calculate turnaround metrics
+        total_time_ms = int((time.time() - self.turn_start_time) * 1000)
+        logger.log(
+            event_name="turn_total_ms",
+            session_id=self.session_id,
+            turn_id=str(self.turn_id),
+            latency_ms=total_time_ms,
+            detail={}
+        )
+        
+        # Speaking -> Listening (waiting for next user turn)
+        self.transition("listening")
+
+_fsms = {}
+
+def get_fsm_for_session(session_id: str) -> VoiceAgentFSM:
+    """Retrieve or create the FSM instance for a session."""
+    global _fsms
+    if session_id not in _fsms:
+        _fsms[session_id] = VoiceAgentFSM(session_id)
+    return _fsms[session_id]

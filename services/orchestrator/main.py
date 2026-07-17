@@ -1,28 +1,48 @@
 import sys
-from http.server import HTTPServer, BaseHTTPRequestHandler
-import json
+import uvicorn
+from fastapi import FastAPI
+from pydantic import BaseModel
+from services.orchestrator.stt_client import handle_transcript
+from services.orchestrator.fsm import get_fsm_for_session
 from common.logging.logger import get_logger
 
 logger = get_logger("orchestrator")
+app = FastAPI(title="Orchestrator Service")
 
-class HealthHandler(BaseHTTPRequestHandler):
-    def log_message(self, format, *args):
-        # Suppress default console logs to keep test output clean
-        pass
+class TranscriptRequest(BaseModel):
+    session_id: str
+    text: str
+    is_final: bool
+    latency_ms: int = 0
 
-    def do_GET(self):
-        if self.path == "/health":
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.end_headers()
-            self.wfile.write(json.dumps({"status": "healthy"}).encode("utf-8"))
-        else:
-            self.send_response(404)
-            self.end_headers()
+class MediaEventRequest(BaseModel):
+    session_id: str
+    kind: str
+    ts: float
+    detail: dict = {}
 
-def make_server(port: int = 8000) -> HTTPServer:
-    """Creates the HTTP server instance and emits service_started log."""
-    server = HTTPServer(("0.0.0.0", port), HealthHandler)
+@app.post("/transcript")
+async def transcript_route(req: TranscriptRequest):
+    """Receive transcript segments from media STT wrapper and route to handler."""
+    handle_transcript(req.session_id, req.text, req.is_final, req.latency_ms)
+    return {"status": "ok"}
+
+@app.post("/media-events")
+async def media_events_route(req: MediaEventRequest):
+    """Receive event payloads from media gateway and route to session FSM."""
+    fsm = get_fsm_for_session(req.session_id)
+    fsm.handle_media_event(req.kind, req.detail)
+    return {"status": "ok"}
+
+@app.get("/health")
+async def health():
+    return {"status": "healthy"}
+
+def make_server(port: int = 8000) -> uvicorn.Server:
+    """Create a Uvicorn server instance programmatically for testing."""
+    config = uvicorn.Config(app, host="0.0.0.0", port=port, log_level="error")
+    server = uvicorn.Server(config)
+    
     logger.log(
         event_name="service_started",
         session_id="system",
@@ -33,12 +53,7 @@ def make_server(port: int = 8000) -> HTTPServer:
 
 def run_server(port: int = 8000) -> None:
     server = make_server(port)
-    try:
-        server.serve_forever()
-    except KeyboardInterrupt:
-        pass
-    finally:
-        server.server_close()
+    server.run()
 
 if __name__ == "__main__":
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 8000

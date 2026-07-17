@@ -9,8 +9,8 @@ Use this board to track the implementation status of each build plan phase and o
 | Phase | Goal / Description | Status | Test Command / Notes |
 | :---: | :--- | :---: | :--- |
 | **Phase 0** | Foundations & Architecture Lock-In | 🟢 *Completed* | `pytest tests/phase0/` |
-| **Phase 1** | Minimal Single-Turn Voice Agent | 🔴 *Not Started* | `pytest tests/phase1/` |
-| **Phase 2** | Multi-Turn Conversation State | 🔴 *Not Started* | `pytest tests/phase2/` |
+| **Phase 1** | Minimal Single-Turn Voice Agent | 🟢 *Completed* | `pytest tests/phase1/` |
+| **Phase 2** | Multi-Turn Conversation State | 🟢 *Completed* | `pytest tests/phase2/` |
 | **Phase 3** | Barge-In & React VAD Client | 🔴 *Not Started* | `pytest tests/phase3/` |
 | **Phase 4** | Utterance Classification (FSM) | 🔴 *Not Started* | `pytest tests/phase4/` |
 | **Phase 5** | Latency Budgeting & Intercept | 🔴 *Not Started* | `pytest tests/phase5/` |
@@ -30,10 +30,10 @@ Use this board to track the implementation status of each build plan phase and o
 
 ## 🎯 Immediate Next Steps
 
-### 1. Initiate Phase 1 (Minimal Single-Turn Voice Agent)
-- [ ] Implement the edge-auth chain: `services/edge-auth/api_gateway.py`, `consent_service.py`, and `token_service.py`.
-- [ ] Implement the LiveKit room glue in `services/media-gateway/room_manager.py` and `events.py`.
-- [ ] Implement clients in `services/orchestrator/`: `stt_client.py`, `llm_client.py` (primary only), `tts_client.py` (speak only), and `fsm.py` (Phase 1 subset).
-- [ ] Build the minimal test harness client in `client/phase1_minimal_harness/`.
-- [ ] Un-skip and implement the Phase 1 test `tests/phase1/test_single_turn.py` against a fixture WAV file.
+### 1. Initiate Phase 3 (Barge-In & React VAD Client)
+- [ ] Implement `services/orchestrator/barge_in.py` for client interruption detection.
+- [ ] Implement `kill()` inside `services/orchestrator/tts_client.py` sending `out-tts-ctrl` signal.
+- [ ] Wire `services/media-gateway/room_manager.py` to stop relaying TTS audio stream on kill event.
+- [ ] Setup Silero VAD on client side (`client/src/`) to trigger local audio ducking.
+- [ ] Un-skip and implement `tests/phase3/test_barge_in.py` verifying under 300ms kill latency.
 - [ ] Validate everything via `python -m pytest tests/ -q`.

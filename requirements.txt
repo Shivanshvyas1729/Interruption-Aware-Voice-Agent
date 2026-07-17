@@ -10,15 +10,15 @@ pytest
 python-dotenv
 
 # --- Phase 1 ---
-# fastapi
-# uvicorn
-# livekit-server-sdk
-# deepgram-sdk
-# cartesia
-# groq
+fastapi
+uvicorn
+livekit-api
+deepgram-sdk
+cartesia
+groq
 
 # --- Phase 2 ---
-# redis
+redis
 
 # --- Phase 3 ---
 # (client-side: onnxruntime-web via npm, not pip — see client/src/vad)

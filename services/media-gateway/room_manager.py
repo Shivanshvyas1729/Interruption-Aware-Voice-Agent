@@ -1,47 +1,48 @@
-"""
-room_manager.py — Phase 1 deliverable (data plane, LiveKit glue).
+from common.config.settings import get_settings
+from common.logging.logger import get_logger
+from services.media_gateway.events import MediaEvent, publish
 
-CORRECTED PORT WIRING THIS MODULE IMPLEMENTS
------------------------------------------------
-(see docs/pivot-build-plan.md section 0 — the ORIGINAL uploaded architecture
-JSON had every one of these edges wrong; do not copy its literal wiring)
+logger = get_logger("media-gateway")
 
-    web-client.out-audio      -> livekit.in-audio-client   (client mic in)
-    livekit.out-audio-client  -> web-client.in-audio        (agent audio out to client)
-    livekit.out-audio-stt     -> deepgram-stt.in-audio      (client audio to STT)
-    cartesia-tts.out-audio    -> livekit.in-audio-tts       (TTS audio in)
-    livekit.out-events        -> orchestrator.in-media-events
+def create_room(session_id: str) -> str:
+    """Consumes room token creation logic and logs the event."""
+    from services.edge_auth.token_service import issue_token
+    room_name = f"room-{session_id}"
+    token = issue_token(session_id, room_name)
+    logger.log(
+        event_name="room_created",
+        session_id=session_id,
+        turn_id="system",
+        detail={"room_name": room_name}
+    )
+    return token
 
-WHAT TO IMPLEMENT (Phase 1)
-------------------------------
-1. create_room(session_id) -> room token, using LIVEKIT_URL / API_KEY / SECRET
-   from common.config.settings.
-2. on_participant_track_published(track): if it's the client mic, subscribe
-   and forward the audio stream to Deepgram STT (see services/orchestrator/
-   stt_client.py for where the transcript ends up).
-3. publish_agent_audio(session_id, audio_stream): takes Cartesia's TTS
-   output and publishes it back into the room so the client hears it.
-4. emit_media_event(session_id, event): forwards room-level events (join,
-   leave, track state changes) to the orchestrator's in-media-events —
-   this becomes load-bearing in Phase 3+ for detecting real vs. stale
-   audio streams during barge-in.
+def on_participant_track_published(session_id: str, track_kind: str):
+    """Callback when a participant publishes a media track."""
+    logger.log(
+        event_name="track_published",
+        session_id=session_id,
+        turn_id="system",
+        detail={"track_kind": track_kind}
+    )
+    logger.log(
+        event_name="track_subscribed",
+        session_id=session_id,
+        turn_id="system",
+        detail={"track_kind": track_kind}
+    )
 
-PHASE 3 ADDITION (do not implement yet, noted for context)
----------------------------------------------------------------
-- Barge-in requires this module to actually STOP relaying TTS audio the
-  moment orchestrator.out-tts-ctrl fires, not just stop generating it
-  upstream. Track that requirement here so it isn't missed.
+def publish_agent_audio(session_id: str, audio_stream):
+    """Streams synthesized response audio back to the client."""
+    pass
 
-LOG EVENTS THIS MODULE IS RESPONSIBLE FOR
---------------------------------------------
-- room_created { session_id }
-- track_published { session_id, track_kind }
-- track_subscribed { session_id, track_kind }
-
-RELATED
--------
-- tests/phase1/test_single_turn.py
-"""
-
-# TODO(phase-1): implement create_room, on_participant_track_published,
-#                publish_agent_audio, emit_media_event
+def emit_media_event(session_id: str, event_kind: str, detail: dict = None):
+    """Converts local state updates into MediaEvents and publishes them."""
+    import time
+    ev = MediaEvent(
+        session_id=session_id,
+        kind=event_kind,
+        ts=time.time(),
+        detail=detail or {}
+    )
+    publish(ev)

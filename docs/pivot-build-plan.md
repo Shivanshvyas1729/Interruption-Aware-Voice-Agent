@@ -36,7 +36,7 @@ The uploaded `architecture-*.json` (and the PDF/PNG renders of it) is **not** th
 | `orch-to-obs-telemetry` | Sources from `in-word-ts` (input port, used backwards) | `orchestrator.out-telemetry → observability-stack.in-telemetry` |
 
 Edges **not** flagged (auth/consent/secrets chain, Redis↔worker job queue) are directionally sound and can be built as-is.
-
+![alt text](<Untitled diagram-2026-07-17-113807.png>)
 ```mermaid
 graph TD
   %% Client & Auth Flow
@@ -50,7 +50,7 @@ graph TD
     Gateway -- "Authenticated" --> Client
   end
 ```
-
+![alt text](<Untitled diagram-2026-07-17-113952.png>)
 ```mermaid
 graph TD
   %% Hot Path Flow
@@ -66,7 +66,7 @@ graph TD
     LiveKit -- "out-audio-client" --> Client
   end
 ```
-
+![alt text](<Untitled diagram-2026-07-17-120852.png>)
 ```mermaid
 graph TD
   %% Intelligence Layer
@@ -80,7 +80,7 @@ graph TD
     Orch -- "out-telemetry" --> Observability[Observability Stack]
   end
 ```
-
+![alt text](<Untitled diagram-2026-07-17-120941.png>)
 ```mermaid
 graph TD
   %% Tool Execution
@@ -90,7 +90,7 @@ graph TD
     Worker -- "Job Status Update" --> Redis
   end
 ```
-
+![alt text](<Untitled diagram-2026-07-17-121114.png>)
 ```mermaid
 graph TD
   %% Layered Architecture
