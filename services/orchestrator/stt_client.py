@@ -1,6 +1,7 @@
 from common.config.settings import get_settings
 from common.logging.logger import get_logger
 from services.orchestrator.fsm import get_fsm_for_session
+from deepgram import DeepgramClient
 
 logger = get_logger("stt-client")
 
@@ -40,19 +41,16 @@ def transcribe_audio_file(session_id: str, filepath: str) -> str:
         return transcript
         
     # Real Deepgram API call
-    from deepgram import DeepgramClient, PrerecordedOptions, FileSource
+
     deepgram = DeepgramClient(api_key)
     
     with open(filepath, "rb") as file:
         buffer_data = file.read()
-        payload: FileSource = {
-            "buffer": buffer_data,
-        }
-        options = PrerecordedOptions(
+        response = deepgram.listen.v1.media.transcribe_file(
+            buffer_data,
             model="nova-3",
-            smart_format=True,
+            smart_format=True
         )
-        response = deepgram.prerecorded.v("1").transcribe_file(payload, options)
         transcript = response.results.channels[0].alternatives[0].transcript
         handle_transcript(session_id, transcript, is_final=True)
         return transcript

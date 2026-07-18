@@ -1,26 +1,33 @@
 import sys
-from http.server import HTTPServer, BaseHTTPRequestHandler
-import json
+import uvicorn
+from fastapi import FastAPI
+from pydantic import BaseModel
+from services.media_gateway.room_manager import create_room, stop_tts_relay
 from common.logging.logger import get_logger
 
 logger = get_logger("media-gateway")
+app = FastAPI(title="Media Gateway Service")
 
-class HealthHandler(BaseHTTPRequestHandler):
-    def log_message(self, format, *args):
-        pass
+class TTSControlRequest(BaseModel):
+    session_id: str
+    action: str
 
-    def do_GET(self):
-        if self.path == "/health":
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.end_headers()
-            self.wfile.write(json.dumps({"status": "healthy"}).encode("utf-8"))
-        else:
-            self.send_response(404)
-            self.end_headers()
+@app.post("/tts-control")
+async def tts_control(req: TTSControlRequest):
+    """Control active audio streaming contexts (e.g. stop relaying on user interruption)."""
+    if req.action == "stop":
+        stop_tts_relay(req.session_id)
+    return {"status": "ok"}
 
-def make_server(port: int = 8001) -> HTTPServer:
-    server = HTTPServer(("0.0.0.0", port), HealthHandler)
+@app.get("/health")
+async def health():
+    return {"status": "healthy"}
+
+def make_server(port: int = 8001) -> uvicorn.Server:
+    """Create a Uvicorn server instance programmatically for testing."""
+    config = uvicorn.Config(app, host="0.0.0.0", port=port, log_level="error")
+    server = uvicorn.Server(config)
+    
     logger.log(
         event_name="service_started",
         session_id="system",
@@ -31,12 +38,7 @@ def make_server(port: int = 8001) -> HTTPServer:
 
 def run_server(port: int = 8001) -> None:
     server = make_server(port)
-    try:
-        server.serve_forever()
-    except KeyboardInterrupt:
-        pass
-    finally:
-        server.server_close()
+    server.run()
 
 if __name__ == "__main__":
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 8001

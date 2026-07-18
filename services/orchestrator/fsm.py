@@ -28,6 +28,10 @@ class VoiceAgentFSM:
         if kind == "participant_joined":
             if self.state == "idle":
                 self.transition("listening")
+                
+        # Forward event to the barge-in detector (Phase 3)
+        from services.orchestrator.barge_in import on_media_event
+        on_media_event(self.session_id, kind, detail)
 
     def receive_transcript(self, transcript: str):
         """Main turn-processing loop triggered by STT transcripts."""

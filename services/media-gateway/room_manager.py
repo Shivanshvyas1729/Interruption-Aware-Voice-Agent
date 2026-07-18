@@ -1,6 +1,7 @@
 from common.config.settings import get_settings
 from common.logging.logger import get_logger
 from services.media_gateway.events import MediaEvent, publish
+import time
 
 logger = get_logger("media-gateway")
 
@@ -32,9 +33,32 @@ def on_participant_track_published(session_id: str, track_kind: str):
         detail={"track_kind": track_kind}
     )
 
+_active_relays = {}
+
+def stop_tts_relay(session_id: str):
+    """Flags the active audio stream to stop transmission instantly."""
+    _active_relays[session_id] = False
+    logger.log(
+        event_name="tts_relay_stopped",
+        session_id=session_id,
+        turn_id="system",
+        detail={"msg": "Media gateway stopped relaying agent audio"}
+    )
+
 def publish_agent_audio(session_id: str, audio_stream):
-    """Streams synthesized response audio back to the client."""
-    pass
+    """Streams synthesized response audio back to the client, checking for interruption flags."""
+    _active_relays[session_id] = True
+    for chunk in audio_stream:
+        if not _active_relays.get(session_id, True):
+            logger.log(
+                event_name="tts_relay_aborted",
+                session_id=session_id,
+                turn_id="system",
+                detail={"msg": "Discarded remaining audio frames in relay queue"}
+            )
+            break
+        # Mock streaming yield simulation
+        time.sleep(0.01)
 
 def emit_media_event(session_id: str, event_kind: str, detail: dict = None):
     """Converts local state updates into MediaEvents and publishes them."""
