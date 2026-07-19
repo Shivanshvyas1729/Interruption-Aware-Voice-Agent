@@ -52,6 +52,15 @@ class LLMResponse:
     session_id: str
     turn_id: int
     tokens: int = 0
+    latency_ms: int = 0
+
+@dataclass
+class TextResponse:
+    text: str
+    session_id: str
+    turn_id: int
+    tokens: int = 0
+    latency_ms: int = 0
 
 @dataclass
 class TTSRequest:
@@ -158,6 +167,7 @@ class PipelineStage(ABC):
         if self._task is None or self._task.done():
             self._cancel_event.clear()
             self._task = asyncio.create_task(self._run_wrapper(), name=self.name)
+            logger.log_service_start(self.name)
 
     async def stop(self):
         self._cancel_event.set()
@@ -167,6 +177,7 @@ class PipelineStage(ABC):
                 await self._task
             except (asyncio.CancelledError, Exception):
                 pass
+        logger.log_service_stop(self.name)
 
     async def _run_wrapper(self):
         try:
@@ -175,8 +186,7 @@ class PipelineStage(ABC):
             logger.log("pipeline_stage_cancelled", "system", "system",
                        detail={"stage": self.name})
         except Exception as e:
-            logger.log("pipeline_stage_error", "system", "system",
-                       detail={"stage": self.name, "error": str(e)})
+            logger.log_error("pipeline_stage_error", "system", "system", e, stage=self.name)
             traceback.print_exc()
 
 # ---------------------------------------------------------------------------
@@ -199,17 +209,21 @@ class STTWorker(PipelineStage):
             if self._cancel_event.is_set():
                 break
 
-            tok = get_cancel_token(msg.session_id)
-            if tok.is_cancelled:
-                continue
+            try:
+                tok = get_cancel_token(msg.session_id)
+                if tok.is_cancelled:
+                    continue
 
-            # Browser sends text (Web Speech API), pass through directly.
-            # For future raw-audio mode, this worker would call Deepgram.
-            telemetry_bus.push("stt_final", {"text": msg.text[:80]},
-                               msg.session_id, str(msg.turn_id))
-            await self.output.put(TranscriptMessage(
-                text=msg.text, session_id=msg.session_id,
-                turn_id=msg.turn_id, is_final=True))
+                # Browser sends text (Web Speech API), pass through directly.
+                # For future raw-audio mode, this worker would call Deepgram.
+                telemetry_bus.push("stt_final", {"text": msg.text[:80]},
+                                   msg.session_id, str(msg.turn_id))
+                await self.output.put(TranscriptMessage(
+                    text=msg.text, session_id=msg.session_id,
+                    turn_id=msg.turn_id, is_final=True))
+            except Exception as e:
+                logger.log_error("stt_worker_error", msg.session_id if 'msg' in locals() else "system", "system", e)
+                telemetry_bus.push("error", {"message": f"STT Stage Error: {str(e)}"}, msg.session_id if 'msg' in locals() else "system", "system")
 
 # ---------------------------------------------------------------------------
 # LLM Worker
@@ -241,6 +255,8 @@ class LLMWorker(PipelineStage):
             api_key = settings.groq_api_key
             if not api_key or api_key == "dummy_val" or settings.env == "test":
                 await asyncio.sleep(vc_get("llm.mock_sleep_ms", 50) / 1000.0)
+                telemetry_bus.push("llm_first_token", {"latency_ms": vc_get("llm.mock_sleep_ms", 50)},
+                                   req.session_id, str(req.turn_id))
                 last = req.messages[-1]["content"].lower() if req.messages else ""
                 if "mars" in last:
                     reply = "Mars is the fourth planet from the Sun."
@@ -255,7 +271,7 @@ class LLMWorker(PipelineStage):
                            detail={"reply": reply[:60]})
                 await self.output.put(LLMResponse(
                     text=reply, session_id=req.session_id,
-                    turn_id=req.turn_id, tokens=len(reply.split())))
+                    turn_id=req.turn_id, tokens=len(reply.split()), latency_ms=50))
                 continue
 
             logger.log("llm_real_call_start", req.session_id, str(req.turn_id),
@@ -267,36 +283,83 @@ class LLMWorker(PipelineStage):
 
             budget = get_token_budget(req.session_id)
 
+            t0 = time.time()
             try:
-                reply_text, token_count = await loop.run_in_executor(
-                    None, self._llm_sync, api_key, settings.groq_model, payload)
-            except Exception as e:
-                logger.log("llm_real_call_failed", req.session_id, str(req.turn_id),
-                           detail={"error": str(e)})
-                raise
+                try:
+                    reply_text, token_count = await loop.run_in_executor(
+                        None, self._llm_sync, api_key, settings.groq_model, payload, loop, req.session_id, req.turn_id)
+                    provider = "groq"
+                except Exception as e:
+                    logger.log("llm_real_call_failed", req.session_id, str(req.turn_id),
+                               detail={"error": str(e)})
+                    fallback_key = settings.openai_api_key
+                    if fallback_key and fallback_key != "dummy_val":
+                        logger.log("llm_failover_triggered", req.session_id, str(req.turn_id),
+                                   detail={"reason": str(e), "model": settings.openai_fallback_model})
+                        telemetry_bus.push("llm_failover_triggered", {"reason": str(e)}, req.session_id, str(req.turn_id))
+                        reply_text, token_count = await loop.run_in_executor(
+                            None, self._openai_fallback_sync, fallback_key, settings.openai_fallback_model, payload, loop, req.session_id, req.turn_id)
+                        provider = "openai"
+                    else:
+                        raise e
 
-            budget.record_prompt(sum(len(m.get("content", "")) // 4 + 3 for m in payload))
-            budget.record_completion(token_count)
+                latency_ms = int((time.time() - t0) * 1000)
+                budget.record_prompt(sum(len(m.get("content", "")) // 4 + 3 for m in payload))
+                budget.record_completion(token_count)
 
-            telemetry_bus.push("llm_complete", {"latency_ms": 0,
-                               "prompt_tokens": budget.prompt_tokens,
-                               "completion_tokens": token_count},
-                               req.session_id, str(req.turn_id))
-            logger.log("llm_real_response", req.session_id, str(req.turn_id),
-                       detail={"tokens": token_count, "reply": reply_text[:60]})
-            await self.output.put(LLMResponse(
-                text=reply_text, session_id=req.session_id,
-                turn_id=req.turn_id, tokens=token_count))
+                telemetry_bus.push("llm_complete", {"latency_ms": latency_ms,
+                                   "prompt_tokens": budget.prompt_tokens,
+                                   "completion_tokens": token_count,
+                                   "provider": provider},
+                                   req.session_id, str(req.turn_id))
+                logger.log("llm_real_response", req.session_id, str(req.turn_id),
+                           detail={"tokens": token_count, "reply": reply_text[:60], "provider": provider})
+                await self.output.put(LLMResponse(
+                    text=reply_text, session_id=req.session_id,
+                    turn_id=req.turn_id, tokens=token_count, latency_ms=latency_ms))
 
-    def _llm_sync(self, api_key: str, model: str, payload: list[dict]) -> tuple[str, int]:
+            except Exception as outer_err:
+                logger.log_error("llm_worker_processing_failed", req.session_id, str(req.turn_id), outer_err)
+                telemetry_bus.push("error", {"message": f"LLM Stage Error: {str(outer_err)}"}, req.session_id, str(req.turn_id))
+                # Send error response so pipeline does not hang
+                await self.output.put(LLMResponse(
+                    text="I'm sorry, I encountered an LLM error.", session_id=req.session_id,
+                    turn_id=req.turn_id, tokens=0))
+
+    def _llm_sync(self, api_key: str, model: str, payload: list[dict], loop: asyncio.AbstractEventLoop, session_id: str, turn_id: int) -> tuple[str, int]:
         from groq import Groq
         client = Groq(api_key=api_key)
         completion = client.chat.completions.create(messages=payload, model=model, stream=True)
         tokens = 0
         chunks = []
+        start_time = time.time()
+        first_token_fired = False
         for chunk in completion:
             delta = chunk.choices[0].delta.content or ""
             if delta:
+                if not first_token_fired:
+                    first_token_fired = True
+                    latency_ms = int((time.time() - start_time) * 1000)
+                    loop.call_soon_threadsafe(telemetry_bus.push, "llm_first_token", {"latency_ms": latency_ms}, session_id, str(turn_id))
+                chunks.append(delta)
+                tokens += 1
+        return "".join(chunks), tokens
+
+    def _openai_fallback_sync(self, api_key: str, model: str, payload: list[dict], loop: asyncio.AbstractEventLoop, session_id: str, turn_id: int) -> tuple[str, int]:
+        from openai import OpenAI
+        client = OpenAI(api_key=api_key)
+        completion = client.chat.completions.create(messages=payload, model=model, stream=True)
+        tokens = 0
+        chunks = []
+        start_time = time.time()
+        first_token_fired = False
+        for chunk in completion:
+            delta = chunk.choices[0].delta.content or ""
+            if delta:
+                if not first_token_fired:
+                    first_token_fired = True
+                    latency_ms = int((time.time() - start_time) * 1000)
+                    loop.call_soon_threadsafe(telemetry_bus.push, "llm_first_token", {"latency_ms": latency_ms}, session_id, str(turn_id))
                 chunks.append(delta)
                 tokens += 1
         return "".join(chunks), tokens
@@ -321,30 +384,38 @@ class TTSWorker(PipelineStage):
             if self._cancel_event.is_set():
                 break
 
-            logger.log("tts_request_received", req.session_id, str(req.turn_id),
-                       detail={"text": req.text[:60]})
+            try:
+                logger.log("tts_request_received", req.session_id, str(req.turn_id),
+                           detail={"text": req.text[:60]})
 
-            tok = get_cancel_token(req.session_id)
-            if tok.is_cancelled:
-                logger.log("tts_skipped_cancelled", req.session_id, str(req.turn_id), detail={})
-                continue
+                tok = get_cancel_token(req.session_id)
+                if tok.is_cancelled:
+                    logger.log("tts_skipped_cancelled", req.session_id, str(req.turn_id), detail={})
+                    continue
 
-            settings = get_settings()
-            api_key = settings.cartesia_api_key
-            mock = not api_key or api_key == "dummy_val" or settings.env == "test"
-            logger.log("tts_starting", req.session_id, str(req.turn_id),
-                       detail={"mock": mock})
+                settings = get_settings()
+                api_key = settings.cartesia_api_key
+                mock = not api_key or api_key == "dummy_val" or settings.env == "test"
+                logger.log("tts_starting", req.session_id, str(req.turn_id),
+                           detail={"mock": mock})
 
-            loop = asyncio.get_event_loop()
-            await loop.run_in_executor(
-                None, self._tts_sync, api_key, req, mock, loop)
+                loop = asyncio.get_event_loop()
+                await loop.run_in_executor(
+                    None, self._tts_sync, api_key, req, mock, loop)
+            except Exception as e:
+                logger.log_error("tts_worker_processing_failed", req.session_id, str(req.turn_id), e)
+                telemetry_bus.push("error", {"message": f"TTS Stage Error: {str(e)}"}, req.session_id, str(req.turn_id))
+                # Push dummy end chunk to prevent client hanging
+                await self.output.put(AudioChunk(b"", req.session_id, req.turn_id, True))
 
     def _tts_sync(self, api_key: str, req: TTSRequest, mock: bool, loop: asyncio.AbstractEventLoop):
         def _put(chunk: AudioChunk):
             asyncio.run_coroutine_threadsafe(self.output.put(chunk), loop)
 
+        start_time = time.time()
+        loop.call_soon_threadsafe(telemetry_bus.push, "tts_start", {"sentence_idx": 0}, req.session_id, str(req.turn_id))
+
         if mock:
-            import time
             time.sleep(vc_get("tts.mock_sleep_ms", 50) / 1000.0)
             silence = vc_get("tts.mock_chunk_silence_bytes", 16000)
             mock_wav = (
@@ -352,6 +423,8 @@ class TTSWorker(PipelineStage):
                 b'@\x1f\x00\x00\x80\x3e\x00\x00\x02\x00\x10\x00data\x00\x3e\x00\x00'
                 + b'\x00' * silence
             )
+            latency_ms = int((time.time() - start_time) * 1000)
+            loop.call_soon_threadsafe(telemetry_bus.push, "tts_complete", {"latency_ms": latency_ms}, req.session_id, str(req.turn_id))
             _put(AudioChunk(mock_wav, req.session_id, req.turn_id, True))
             return
 
@@ -370,11 +443,16 @@ class TTSWorker(PipelineStage):
         )
 
         if isinstance(response, bytes):
+            loop.call_soon_threadsafe(telemetry_bus.push, "tts_chunk", {"sentence": req.text[:40]}, req.session_id, str(req.turn_id))
             _put(AudioChunk(response, req.session_id, req.turn_id, True))
         elif hasattr(response, "__iter__"):
             for chunk in response:
+                loop.call_soon_threadsafe(telemetry_bus.push, "tts_chunk", {"sentence": req.text[:40]}, req.session_id, str(req.turn_id))
                 _put(AudioChunk(chunk, req.session_id, req.turn_id, False))
             _put(AudioChunk(b"", req.session_id, req.turn_id, True))
+
+        latency_ms = int((time.time() - start_time) * 1000)
+        loop.call_soon_threadsafe(telemetry_bus.push, "tts_complete", {"latency_ms": latency_ms}, req.session_id, str(req.turn_id))
 
 # ---------------------------------------------------------------------------
 # Playback Worker — sends audio to WebSocket clients
@@ -385,6 +463,7 @@ class PlaybackWorker(PipelineStage):
         super().__init__("playback")
         self.input: asyncio.Queue = asyncio.Queue()
         self._clients: dict[str, asyncio.Queue] = {}
+        self._playback_started: dict[str, float] = {}  # session_id -> start_time
 
     def register_client(self, session_id: str, queue: asyncio.Queue):
         self._clients[session_id] = queue
@@ -402,9 +481,32 @@ class PlaybackWorker(PipelineStage):
             if self._cancel_event.is_set():
                 break
 
-            q = self._clients.get(chunk.session_id)
-            if q and chunk.data:
-                await q.put(chunk.data)
+            try:
+                q = self._clients.get(chunk.session_id)
+                if q:
+                    if isinstance(chunk, AudioChunk) and chunk.data:
+                        if chunk.session_id not in self._playback_started:
+                            self._playback_started[chunk.session_id] = time.time()
+                            telemetry_bus.push("playback_start", {}, chunk.session_id, str(chunk.turn_id))
+                        await q.put(chunk.data)
+                    elif isinstance(chunk, TextResponse):
+                        await q.put({
+                            "type": "llm_response",
+                            "text": chunk.text,
+                            "turn_id": chunk.turn_id,
+                            "tokens": chunk.tokens,
+                            "latency_ms": chunk.latency_ms
+                        })
+
+                if isinstance(chunk, AudioChunk) and chunk.is_last:
+                    start_time = self._playback_started.pop(chunk.session_id, None)
+                    telemetry_bus.push("playback_end", {}, chunk.session_id, str(chunk.turn_id))
+                    if start_time:
+                        total_latency_ms = int((time.time() - start_time) * 1000)
+                        telemetry_bus.push("turn_complete", {"total_latency_ms": total_latency_ms}, chunk.session_id, str(chunk.turn_id))
+            except Exception as e:
+                logger.log_error("playback_worker_error", chunk.session_id, str(chunk.turn_id), e)
+                telemetry_bus.push("error", {"message": f"Playback Stage Error: {str(e)}"}, chunk.session_id, str(chunk.turn_id))
 
 # ---------------------------------------------------------------------------
 # FSM Worker — orchestrates the conversation turn flow
@@ -419,36 +521,41 @@ class FSMWorker(PipelineStage):
         self.tts_input: asyncio.Queue = asyncio.Queue()
         self.cancel_input: asyncio.Queue = asyncio.Queue()
         self.metrics_output: asyncio.Queue = asyncio.Queue()
+        self.playback_input: asyncio.Queue | None = None
         self._sessions: dict[str, _SessionState] = {}
 
     async def run(self):
         while not self._cancel_event.is_set():
-            done, _ = await asyncio.wait(
-                [asyncio.create_task(j) for j in [
-                    self._wait_queue(self.transcript_input, "transcript"),
-                    self._wait_queue(self.llm_output, "llm_response"),
-                    self._wait_queue(self.cancel_input, "cancel"),
-                ]],
-                timeout=0.5, return_when=asyncio.FIRST_COMPLETED
-            )
-            for coro in done:
-                try:
-                    result = coro.result()
-                except (asyncio.TimeoutError, asyncio.CancelledError):
-                    continue
-                if result is None:
-                    continue
-                kind, msg = result
-                try:
-                    if kind == "transcript":
-                        await self._handle_transcript(msg)
-                    elif kind == "llm_response":
-                        await self._handle_llm_response(msg)
-                    elif kind == "cancel":
-                        await self._handle_cancel(msg)
-                except Exception as e:
-                    logger.log("fsm_error", msg.session_id, str(getattr(msg, "turn_id", "?")),
-                               detail={"error": str(e)})
+            try:
+                done, _ = await asyncio.wait(
+                    [asyncio.create_task(j) for j in [
+                        self._wait_queue(self.transcript_input, "transcript"),
+                        self._wait_queue(self.llm_output, "llm_response"),
+                        self._wait_queue(self.cancel_input, "cancel"),
+                    ]],
+                    timeout=0.5, return_when=asyncio.FIRST_COMPLETED
+                )
+                for coro in done:
+                    try:
+                        result = coro.result()
+                    except (asyncio.TimeoutError, asyncio.CancelledError):
+                        continue
+                    if result is None:
+                        continue
+                    kind, msg = result
+                    try:
+                        if kind == "transcript":
+                            await self._handle_transcript(msg)
+                        elif kind == "llm_response":
+                            await self._handle_llm_response(msg)
+                        elif kind == "cancel":
+                            await self._handle_cancel(msg)
+                    except Exception as e:
+                        logger.log("fsm_error", getattr(msg, "session_id", "system"), str(getattr(msg, "turn_id", "?")),
+                                   detail={"error": str(e)})
+                        telemetry_bus.push("error", {"message": f"FSM Stage Error: {str(e)}"}, getattr(msg, "session_id", "system"), str(getattr(msg, "turn_id", "system")))
+            except Exception as outer_err:
+                logger.log_error("fsm_worker_loop_error", "system", "system", outer_err)
 
     async def _wait_queue(self, q: asyncio.Queue, kind: str, timeout: float = 0.5):
         try:
@@ -484,6 +591,12 @@ class FSMWorker(PipelineStage):
         logger.log("fsm_sending_to_tts", msg.session_id, str(msg.turn_id), detail={})
         await self.tts_input.put(TTSRequest(
             text=msg.text, session_id=msg.session_id, turn_id=msg.turn_id))
+
+        # Push LLM response text to playback worker so it goes to the WebSocket client
+        if hasattr(self, "playback_input") and self.playback_input:
+            await self.playback_input.put(TextResponse(
+                text=msg.text, session_id=msg.session_id, turn_id=msg.turn_id,
+                tokens=msg.tokens, latency_ms=msg.latency_ms))
 
         logger.log("fsm_sending_metrics", msg.session_id, str(msg.turn_id), detail={})
         await self.metrics_output.put(MetricsEvent(
@@ -527,16 +640,20 @@ class InterruptMonitorWorker(PipelineStage):
             if self._cancel_event.is_set():
                 break
 
-            if event.kind in ("vad_start", "barge_in"):
-                tok = get_cancel_token(event.session_id)
-                if not tok.is_cancelled:
-                    tok.cancel(event.kind)
-                    telemetry_bus.push("vad_start", {}, event.session_id, "system")
-                    await self.output.put(CancelCommand(event.session_id, event.kind))
-            elif event.kind == "stop_button":
-                tok = get_cancel_token(event.session_id)
-                tok.cancel("stop_button")
-                await self.output.put(CancelCommand(event.session_id, "stop_button"))
+            try:
+                if event.kind in ("vad_start", "barge_in"):
+                    tok = get_cancel_token(event.session_id)
+                    if not tok.is_cancelled:
+                        tok.cancel(event.kind)
+                        telemetry_bus.push("vad_start", {}, event.session_id, "system")
+                        await self.output.put(CancelCommand(event.session_id, event.kind))
+                elif event.kind == "stop_button":
+                    tok = get_cancel_token(event.session_id)
+                    tok.cancel("stop_button")
+                    await self.output.put(CancelCommand(event.session_id, "stop_button"))
+            except Exception as e:
+                logger.log_error("interrupt_monitor_worker_error", getattr(event, "session_id", "system"), "system", e)
+                telemetry_bus.push("error", {"message": f"Interrupt Monitor Error: {str(e)}"}, getattr(event, "session_id", "system"), "system")
 
 # ---------------------------------------------------------------------------
 # Cancellation Manager Worker — cleans up tasks
@@ -561,13 +678,16 @@ class CancellationWorker(PipelineStage):
             if self._cancel_event.is_set():
                 break
 
-            tasks = self._active_tasks.pop(cmd.session_id, [])
-            for t in tasks:
-                if not t.done():
-                    t.cancel()
-            telemetry_bus.push("cancellation", {"reason": cmd.reason,
-                               "tasks_cancelled": len(tasks)},
-                               cmd.session_id, "system")
+            try:
+                tasks = self._active_tasks.pop(cmd.session_id, [])
+                for t in tasks:
+                    if not t.done():
+                        t.cancel()
+                telemetry_bus.push("cancellation", {"reason": cmd.reason,
+                                   "tasks_cancelled": len(tasks)},
+                                   cmd.session_id, "system")
+            except Exception as e:
+                logger.log_error("cancellation_worker_error", getattr(cmd, "session_id", "system"), "system", e)
 
 # ---------------------------------------------------------------------------
 # Metrics Worker — pushes to telemetry bus
@@ -588,7 +708,10 @@ class MetricsWorker(PipelineStage):
             if self._cancel_event.is_set():
                 break
 
-            telemetry_bus.push(ev.event_type, ev.data, ev.session_id, ev.turn_id)
+            try:
+                telemetry_bus.push(ev.event_type, ev.data, ev.session_id, ev.turn_id)
+            except Exception as e:
+                logger.log_error("metrics_worker_error", getattr(ev, "session_id", "system"), "system", e)
 
 # ---------------------------------------------------------------------------
 # Pipeline orchestrator — wires all workers together
@@ -611,6 +734,7 @@ class VoicePipeline:
     def start(self):
         if self._started:
             return
+        logger.log_service_start("voice-pipeline", detail={"workers": 8})
         # Wire queues: STT → FSM
         self.stt.output = self.fsm.transcript_input
         # Wire queues: FSM → LLM
@@ -625,6 +749,8 @@ class VoicePipeline:
         self.interrupt.output = self.fsm.cancel_input
         # Wire queues: FSM → Metrics
         self.fsm.metrics_output = self.metrics.input
+        # Wire queues: FSM → Playback (for text responses)
+        self.fsm.playback_input = self.playback.input
 
         for stage in [self.stt, self.llm, self.tts, self.playback,
                       self.fsm, self.interrupt, self.canceller, self.metrics]:
@@ -633,6 +759,7 @@ class VoicePipeline:
         self._started = True
 
     async def stop(self):
+        logger.log_service_stop("voice-pipeline", detail={"reason": "shutdown"})
         for stage in [self.stt, self.llm, self.tts, self.playback,
                       self.fsm, self.interrupt, self.canceller, self.metrics]:
             await stage.stop()

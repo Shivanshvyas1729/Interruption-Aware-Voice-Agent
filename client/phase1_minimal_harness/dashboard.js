@@ -294,6 +294,8 @@ function handleTelemetryEvent(msg) {
       setStageState("llm", "active", "LLM");
       const ttfb = data.latency_ms || dt();
       setWaterfall("wf-llm-first-token", "TTFB", ttfb, "#a855f7");
+      const ttfbEl = getEl("llm-ttfb");
+      if (ttfbEl) ttfbEl.textContent = `${ttfb}ms`;
       pushTelemetryFeed(type, { ttfb_ms: ttfb });
       break;
 
@@ -301,6 +303,10 @@ function handleTelemetryEvent(msg) {
       setStageState("llm", "done", "LLM");
       const llmLate = data.latency_ms || dt();
       setWaterfall("wf-llm-complete", "LLM", llmLate, "#ec4899");
+      const latencyEl = getEl("llm-latency");
+      if (latencyEl) latencyEl.textContent = `${llmLate}ms`;
+      const modelEl = getEl("llm-model");
+      if (modelEl) modelEl.textContent = data.provider || "groq";
       sessionMetrics.llmCount++;
       pushTelemetryFeed(type, { latency_ms: llmLate });
       break;
@@ -310,6 +316,8 @@ function handleTelemetryEvent(msg) {
       const tokCount = data.token_count || 0;
       const tokEl = getEl("live-tokens-sec");
       if (tokEl && tokPerSec > 0) tokEl.textContent = `${tokPerSec} t/s`;
+      const tokensEl = getEl("llm-tokens");
+      if (tokensEl) tokensEl.textContent = tokCount;
       sessionMetrics.totalTokens += tokCount;
       pushTelemetryFeed(type, { tokens: tokCount, tps: tokPerSec });
       break;

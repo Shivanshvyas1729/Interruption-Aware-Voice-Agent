@@ -1,6 +1,7 @@
 import os
 import sys
 import json
+import traceback
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
@@ -8,6 +9,7 @@ from typing import Any, Dict, Optional
 EVENT_PHASES: Dict[str, str] = {
     # Phase 0
     "service_started": "0",
+    "service_stopped": "0",
     "secret_accessed": "0",
     
     # Phase 1
@@ -110,6 +112,27 @@ class ComponentLogger:
         
         sys.stdout.write(json.dumps(record) + "\n")
         sys.stdout.flush()
+
+    def log_service_start(self, service_name: str, **detail: Any) -> None:
+        """Log service startup."""
+        self.log("service_started", "system", "system", detail={"service": service_name, **detail})
+
+    def log_service_stop(self, service_name: str, **detail: Any) -> None:
+        """Log service shutdown."""
+        self.log("service_stopped", "system", "system", detail={"service": service_name, **detail})
+
+    def log_error(self, event_name: str, session_id: str, turn_id: str, error: Exception, **detail: Any) -> None:
+        """Log an error with full traceback."""
+        self.log(event_name, session_id, turn_id, detail={
+            **detail,
+            "error": str(error),
+            "error_type": type(error).__name__,
+            "traceback": traceback.format_exc()
+        })
+
+    def log_exception(self, event_name: str, session_id: str, turn_id: str, **detail: Any) -> None:
+        """Log an exception with full traceback (alias for log_error)."""
+        self.log_error(event_name, session_id, turn_id, Exception("Exception logged"), **detail)
 
 def get_logger(component: str) -> ComponentLogger:
     """Retrieve a component-bound logger."""

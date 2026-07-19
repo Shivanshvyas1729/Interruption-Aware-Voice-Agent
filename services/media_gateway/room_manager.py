@@ -45,6 +45,16 @@ def stop_tts_relay(session_id: str):
         detail={"msg": "Media gateway stopped relaying agent audio"}
     )
 
+def cleanup_session(session_id: str):
+    """Removes session state to prevent memory leaks in multi-user concurrent scenarios."""
+    _active_relays.pop(session_id, None)
+    logger.log(
+        event_name="session_cleaned_up",
+        session_id=session_id,
+        turn_id="system",
+        detail={"msg": "Cleaned up media gateway session relay state"}
+    )
+
 def publish_agent_audio(session_id: str, audio_stream):
     """Streams synthesized response audio back to the client, checking for interruption flags."""
     _active_relays[session_id] = True

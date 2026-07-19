@@ -9,7 +9,10 @@ async function loadVoiceConfig() {
   try {
     const r = await fetch(CFG_URL);
     if (r.ok) Object.assign(VOICE_CONFIG, await r.json());
-  } catch (_) { /* use defaults */ }
+    console.log("[Config] Voice config loaded:", VOICE_CONFIG);
+  } catch (e) {
+    console.warn("[Config] Could not load voice config, using defaults:", e.message);
+  }
   // Populate table target cells
   const t = VOICE_CONFIG.latency_threshold_targets || {};
   const q = (sel) => document.querySelector(sel);
@@ -56,6 +59,11 @@ const roomName = "demo-room";
 let room;
 let recognition;
 let currentAudio = null;
+
+// -----------------------------------------------------------------------
+// SESSION ACTIVE FLAG — independent of LiveKit connection state
+// -----------------------------------------------------------------------
+let sessionActive = false;
 
 // High-precision timestamps for latency waterfall
 let speechStartTime = 0;
@@ -132,12 +140,12 @@ function updateUIState(state, text) {
   statusDot.style.boxShadow = `0 0 12px ${color}`;
   
   if (state === "connected" || state === "speaking") {
-    waveContainer.classList.add("animating");
+    if (waveContainer) waveContainer.classList.add("animating");
     document.querySelectorAll(".wave-bar").forEach(bar => {
       bar.style.backgroundColor = color;
     });
   } else {
-    waveContainer.classList.remove("animating");
+    if (waveContainer) waveContainer.classList.remove("animating");
     document.querySelectorAll(".wave-bar").forEach(bar => {
       bar.style.backgroundColor = color;
     });
@@ -180,9 +188,9 @@ function renderLogEvent(logData) {
   logPanel.scrollTop = logPanel.scrollHeight;
 }
 
-// ----------------------------------------------------------------------------
+// -----------------------------------------------------------------------
 // MICROPHONE LEVEL ANALYSER (WEB AUDIO API)
-// ----------------------------------------------------------------------------
+// -----------------------------------------------------------------------
 function startMicEnergyTracker(stream) {
   try {
     const AudioCtx = window.AudioContext || window.webkitAudioContext;
@@ -214,7 +222,7 @@ function startMicEnergyTracker(stream) {
       }
     }, (VOICE_CONFIG.ui && VOICE_CONFIG.ui.mic_energy_interval_ms) || 50);
   } catch (e) {
-    console.warn("Could not start Web Audio analyser for mic energy:", e);
+    console.warn("[MicTracker] Could not start Web Audio analyser for mic energy:", e);
   }
 }
 
@@ -237,19 +245,27 @@ function stopMicEnergyTracker() {
 }
 
 // Start analysis stream on microphone access
-navigator.mediaDevices.getUserMedia({ audio: true })
+navigator.mediaDevices.getUserMedia({
+  audio: {
+    echoCancellation: true,
+    noiseSuppression: true,
+    autoGainControl: true
+  }
+})
   .then(stream => {
     micStream = stream;
     startMicEnergyTracker(stream);
+    console.log("[Mic] Microphone access granted");
   })
   .catch(err => {
-    console.warn("Microphone analysis initialization bypassed:", err);
+    console.warn("[Mic] Microphone analysis initialization bypassed:", err.message);
   });
 
-// ----------------------------------------------------------------------------
+// -----------------------------------------------------------------------
 // AUDIO PLAYBACK GATES
-// ----------------------------------------------------------------------------
+// -----------------------------------------------------------------------
 function playBase64Audio(base64Data) {
+  console.log("[Audio] playBase64Audio called, data length:", base64Data.length);
   try {
     if (currentAudio) {
       currentAudio.pause();
@@ -268,6 +284,8 @@ function playBase64Audio(base64Data) {
     currentAudio = new Audio(url);
     
     currentAudio.onplay = () => {
+      console.log("[Audio] Playback started");
+      renderLogEvent({ event: "playback_started", detail: { source: "base64_wav" } });
       updateUIState("speaking", "Speaking...");
       
       if (window.dispatchTelemetryEvent) {
@@ -277,11 +295,14 @@ function playBase64Audio(base64Data) {
       // Mark playback start in waterfall
       if (speechStartTime > 0) {
         const playbackStart = Math.round(performance.now() - speechStartTime);
-        document.getElementById("wf-playback-start").textContent = `+${playbackStart}ms`;
+        const el = document.getElementById("wf-playback-start");
+        if (el) el.textContent = `+${playbackStart}ms`;
       }
     };
     
     currentAudio.onended = () => {
+      console.log("[Audio] Playback ended");
+      renderLogEvent({ event: "playback_completed", detail: { source: "base64_wav" } });
       updateUIState("connected", "Listening...");
       currentAudio = null;
       if (window.dispatchTelemetryEvent) {
@@ -289,13 +310,22 @@ function playBase64Audio(base64Data) {
       }
     };
     
-    currentAudio.play().catch(err => {
-      console.error("Audio playback error:", err);
-      renderLogEvent({ event: "error", detail: { message: `Audio playback failed: ${err.message}` } });
+    currentAudio.onerror = (e) => {
+      console.error("[Audio] Audio element error:", e);
+      renderLogEvent({ event: "error", detail: { message: `Audio element error: ${e.type}` } });
       updateUIState("connected", "Listening...");
-    });
+    };
+    
+    const playPromise = currentAudio.play();
+    if (playPromise !== undefined) {
+      playPromise.catch(err => {
+        console.error("[Audio] Audio playback failed (autoplay policy?):", err.message);
+        renderLogEvent({ event: "error", detail: { message: `Audio playback failed: ${err.message}. Click the page to allow audio.` } });
+        updateUIState("connected", "Listening...");
+      });
+    }
   } catch (e) {
-    console.error("Failed to decode base64 audio:", e);
+    console.error("[Audio] Failed to decode base64 audio:", e);
     renderLogEvent({ event: "error", detail: { message: `Failed to decode TTS audio: ${e.message}` } });
     updateUIState("connected", "Listening...");
   }
@@ -322,17 +352,20 @@ async function notifyBargeIn() {
     });
     renderLogEvent({ event: "barge_in", detail: { msg: "Barge-in cancellation dispatched to Gateway." } });
   } catch (e) {
-    console.error("Failed to notify gateway of barge-in:", e);
+    console.error("[BargeIn] Failed to notify gateway of barge-in:", e);
   }
 }
 
-// ----------------------------------------------------------------------------
-// SPEECH RECOGNITION (STT) GATEWAYS
-// ----------------------------------------------------------------------------
+// -----------------------------------------------------------------------
+// SPEECH RECOGNITION (STT)
+// -----------------------------------------------------------------------
 function startSpeechRecognition() {
+  console.log("[STT] Starting speech recognition...");
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SpeechRecognition) {
-    renderLogEvent({ event: "error", detail: { message: "SpeechRecognition is not supported in this browser. Please use Chrome or Edge." } });
+    const msg = "SpeechRecognition is not supported in this browser. Please use Chrome or Edge.";
+    renderLogEvent({ event: "error", detail: { message: msg } });
+    console.error("[STT]", msg);
     return;
   }
   
@@ -342,13 +375,16 @@ function startSpeechRecognition() {
   recognition.lang = VOICE_CONFIG.stt_language || 'en-US';
   
   recognition.onstart = () => {
-    renderLogEvent({ event: "system", detail: { msg: "Speech recognition worker started. Speak into your mic!" } });
+    console.log("[STT] Recognition started — listening for speech");
+    renderLogEvent({ event: "stt_started", detail: { msg: "Speech recognition active. Speak into your mic!" } });
     updateUIState("connected", "Listening...");
   };
   
   recognition.onspeechstart = () => {
     const interruptStart = performance.now();
     speechStartTime = performance.now();
+    console.log("[STT] Speech detected (VAD start)");
+    renderLogEvent({ event: "vad_start", detail: { msg: "Speech detected" } });
     
     // Clear waterfall view for new turn safely
     const ids = ["wf-vad-start", "wf-stt-complete", "wf-llm-first-token", "wf-llm-complete", "wf-tts-first-audio", "wf-playback-start", "wf-playback-end", "wf-orch-start", "wf-tts-complete"];
@@ -357,13 +393,16 @@ function startSpeechRecognition() {
       if (el) el.textContent = "-";
     });
     
-    // Dispatch telemetry event for VAD start
+    const vadStart = Math.round(performance.now() - speechStartTime);
+    const el = document.getElementById("wf-vad-start");
+    if (el) el.textContent = `+${vadStart}ms`;
+    
     if (window.dispatchTelemetryEvent) {
       window.dispatchTelemetryEvent("vad_start", {});
     }
     
     if (currentAudio) {
-      console.log("Speech detected! Interrupted active audio.");
+      console.log("[STT] Speech detected — interrupting active audio");
       currentAudio.pause();
       currentAudio = null;
       updateUIState("connected", "Listening...");
@@ -385,12 +424,14 @@ function startSpeechRecognition() {
     const sttLatency = speechStartTime > 0 ? Math.round(sttEndTime - speechStartTime) : fallbackStt;
     localHistory.stt.push(sttLatency);
     
+    console.log(`[STT] Final transcript: "${transcript}" (STT latency: ${sttLatency}ms)`);
+    
     // Update STT waterfall safely
     const elStt = document.getElementById("wf-stt-complete");
     if (elStt) elStt.textContent = `+${sttLatency}ms`;
     
     userTranscriptDiv.textContent = transcript;
-    renderLogEvent({ event: "stt_final", detail: { text: transcript } });
+    renderLogEvent({ event: "stt_final", detail: { text: transcript, latency_ms: sttLatency } });
     
     updateUIState("thinking", "Thinking...");
     
@@ -399,8 +440,13 @@ function startSpeechRecognition() {
     timeOrchStart = Math.round(startFetch - speechStartTime);
     const elOrch = document.getElementById("wf-orch-start") || document.getElementById("wf-vad-start");
     if (elOrch) elOrch.textContent = `+${timeOrchStart}ms`;
-    
+
+    // -------------------------------------------------------
+    // Path A: WebSocket pipeline (preferred — streaming audio)
+    // -------------------------------------------------------
     if (streamSocket && streamSocket.readyState === WebSocket.OPEN) {
+      console.log("[WS] Sending transcript via WebSocket pipeline");
+      renderLogEvent({ event: "llm_request_sent", detail: { path: "websocket", text: transcript.slice(0, 60) } });
       streamSocket.send(JSON.stringify({
         type: "transcript",
         session_id: sessionId,
@@ -408,7 +454,12 @@ function startSpeechRecognition() {
       }));
       return;
     }
-    
+
+    // -------------------------------------------------------
+    // Path B: REST /chat fallback
+    // -------------------------------------------------------
+    console.log("[REST] WebSocket not available, falling back to /chat REST endpoint");
+    renderLogEvent({ event: "llm_request_sent", detail: { path: "rest", text: transcript.slice(0, 60) } });
     const chatUrl = `http://${window.location.hostname || "localhost"}:${API_PORT}/chat`;
     try {
       const response = await fetch(chatUrl, {
@@ -420,7 +471,8 @@ function startSpeechRecognition() {
         })
       });
       if (!response.ok) {
-        throw new Error(`HTTP error! Status: ${response.status}`);
+        const errText = await response.text();
+        throw new Error(`HTTP ${response.status}: ${errText}`);
       }
       const data = await response.json();
       const endFetch = performance.now();
@@ -430,28 +482,34 @@ function startSpeechRecognition() {
       const networkRTT = Math.max(5, totalFetchDuration - backendDuration);
       localHistory.network.push(networkRTT);
       
+      console.log(`[REST] Reply received: "${data.reply}" | LLM: ${data.llm_latency}ms | TTS: ${data.tts_latency}ms | Audio: ${data.audio ? data.audio.length : 0} chars`);
+      renderLogEvent({ event: "llm_response", detail: { text: data.reply, llm_ms: data.llm_latency, tts_ms: data.tts_latency } });
+      
       // Update LLM/TTS waterfall timestamps using backend-latency fields
       const llmLate = data.llm_latency || 0;
       const ttsLate = data.tts_latency || 0;
-      const totalLate = data.total_latency || 0;
       const llmFinish = timeOrchStart + llmLate;
       const ttsFinish = timeOrchStart + llmLate + ttsLate;
-      // Update LLM/TTS waterfall safely
       const elLlm = document.getElementById("wf-llm-complete");
       if (elLlm) elLlm.textContent = `+${llmFinish}ms`;
       const elTts = document.getElementById("wf-tts-complete") || document.getElementById("wf-tts-first-audio");
       if (elTts) elTts.textContent = `+${ttsFinish}ms`;
       
       agentResponseDiv.textContent = data.reply;
-      renderLogEvent({ event: "llm_response", detail: { text: data.reply } });
       
-      if (data.audio) {
+      if (data.audio && data.audio.length > 0) {
+        console.log("[REST] TTS audio received, playing...");
+        renderLogEvent({ event: "tts_audio_received", detail: { bytes_b64: data.audio.length } });
         playBase64Audio(data.audio);
       } else {
+        console.warn("[REST] No audio in response. tts_error:", data.tts_error);
+        if (data.tts_error) {
+          renderLogEvent({ event: "error", detail: { message: `TTS failed: ${data.tts_error}` } });
+        }
         updateUIState("connected", "Listening...");
       }
     } catch (err) {
-      console.error("Turn fetch failed:", err);
+      console.error("[REST] Turn fetch failed:", err);
       renderLogEvent({ event: "error", detail: { message: `Voice processing failed: ${err.message}` } });
       updateUIState("connected", "Listening...");
     }
@@ -459,65 +517,77 @@ function startSpeechRecognition() {
   
   recognition.onerror = (e) => {
     if (e.error !== 'no-speech') {
+      console.error("[STT] Recognition error:", e.error);
       renderLogEvent({ event: "error", detail: { message: `Speech recognition error: ${e.error}` } });
     }
   };
   
   recognition.onend = () => {
-    if (sttEnabled && room && room.state === "connected") {
-      recognition.start();
+    console.log("[STT] Recognition ended. sessionActive:", sessionActive, "sttEnabled:", sttEnabled);
+    // Restart STT as long as the session is active — independent of LiveKit state
+    if (sttEnabled && sessionActive) {
+      try {
+        recognition.start();
+      } catch (e) {
+        console.warn("[STT] Could not restart recognition:", e.message);
+      }
     }
   };
   
-  recognition.start();
+  try {
+    recognition.start();
+  } catch (e) {
+    console.error("[STT] Failed to start recognition:", e);
+    renderLogEvent({ event: "error", detail: { message: `Failed to start STT: ${e.message}` } });
+  }
 }
 
-// ----------------------------------------------------------------------------
+// -----------------------------------------------------------------------
 // CONTROL BUTTON CLICK HANDLERS
-// ----------------------------------------------------------------------------
-muteBtn.addEventListener("click", async () => {
+// -----------------------------------------------------------------------
+if (muteBtn) muteBtn.addEventListener("click", async () => {
   if (room && room.localParticipant) {
     await room.localParticipant.setMicrophoneEnabled(false);
-    muteBtn.style.display = "none";
-    unmuteBtn.style.display = "block";
+    if (muteBtn) muteBtn.style.display = "none";
+    if (unmuteBtn) unmuteBtn.style.display = "block";
     renderLogEvent({ event: "system", detail: "Microphone MUTED via control panel." });
   }
 });
 
-unmuteBtn.addEventListener("click", async () => {
+if (unmuteBtn) unmuteBtn.addEventListener("click", async () => {
   if (room && room.localParticipant) {
     await room.localParticipant.setMicrophoneEnabled(true);
-    unmuteBtn.style.display = "none";
-    muteBtn.style.display = "block";
+    if (unmuteBtn) unmuteBtn.style.display = "none";
+    if (muteBtn) muteBtn.style.display = "block";
     renderLogEvent({ event: "system", detail: "Microphone UNMUTED via control panel." });
   }
 });
 
-sttToggleBtn.addEventListener("click", () => {
+if (sttToggleBtn) sttToggleBtn.addEventListener("click", () => {
   sttEnabled = false;
   if (recognition) {
     try {
       recognition.stop();
     } catch (e) {}
   }
-  sttToggleBtn.style.display = "none";
-  sttStartBtn.style.display = "block";
+  if (sttToggleBtn) sttToggleBtn.style.display = "none";
+  if (sttStartBtn) sttStartBtn.style.display = "block";
   renderLogEvent({ event: "system", detail: "Speech Recognition (STT) STOPPED/DISABLED." });
 });
 
-sttStartBtn.addEventListener("click", () => {
+if (sttStartBtn) sttStartBtn.addEventListener("click", () => {
   sttEnabled = true;
-  if (recognition && room && room.state === "connected") {
+  if (recognition && sessionActive) {
     try {
       recognition.start();
     } catch (e) {}
   }
-  sttStartBtn.style.display = "none";
-  sttToggleBtn.style.display = "block";
+  if (sttStartBtn) sttStartBtn.style.display = "none";
+  if (sttToggleBtn) sttToggleBtn.style.display = "block";
   renderLogEvent({ event: "system", detail: "Speech Recognition (STT) STARTED/ENABLED." });
 });
 
-cancelBtn.addEventListener("click", async () => {
+if (cancelBtn) cancelBtn.addEventListener("click", async () => {
   if (cancelBtn.disabled) return;
   cancelBtn.disabled = true;
   const originalText = cancelBtn.textContent;
@@ -546,7 +616,7 @@ cancelBtn.addEventListener("click", async () => {
     updateUIState("connected", "Listening...");
     renderLogEvent({ event: "system", detail: "Response canceled successfully." });
   } catch (e) {
-    console.error("Cancel response failed:", e);
+    console.error("[Cancel] Cancel response failed:", e);
     renderLogEvent({ event: "error", detail: { message: `Cancel failed: ${e.message}` } });
     updateUIState("connected", "Listening...");
   } finally {
@@ -556,7 +626,7 @@ cancelBtn.addEventListener("click", async () => {
   }
 });
 
-resetBtn.addEventListener("click", async () => {
+if (resetBtn) resetBtn.addEventListener("click", async () => {
   if (currentAudio) {
     currentAudio.pause();
     currentAudio = null;
@@ -568,30 +638,31 @@ resetBtn.addEventListener("click", async () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ session_id: sessionId })
     });
-    userTranscriptDiv.textContent = "Listening for your speech...";
-    agentResponseDiv.textContent = "Waiting for query...";
+    if (userTranscriptDiv) userTranscriptDiv.textContent = "Listening for your speech...";
+    if (agentResponseDiv) agentResponseDiv.textContent = "Waiting for query...";
     updateUIState("connected", "Listening...");
     renderLogEvent({ event: "system", detail: "Session memory reset successfully." });
   } catch (e) {
-    console.error("Reset session failed:", e);
+    console.error("[Reset] Reset session failed:", e);
   }
 });
 
-reconnectBtn.addEventListener("click", async () => {
-  renderLogEvent({ event: "system", detail: "Reconnecting room..." });
+if (reconnectBtn) reconnectBtn.addEventListener("click", async () => {
+  renderLogEvent({ event: "system", detail: "Reconnecting session..." });
+  sessionActive = false;
   if (room) {
     try {
       await room.disconnect();
     } catch (e) {}
   }
   joinBtn.disabled = false;
-  joinBtn.textContent = "Join Session";
+  joinBtn.querySelector("span").textContent = "Join Session";
   joinBtn.classList.remove("connected");
   updateUIState("disconnected", "Disconnected");
-  joinBtn.click();
+  setTimeout(() => joinBtn.click(), 500);
 });
 
-shutdownBtn.addEventListener("click", async () => {
+if (shutdownBtn) shutdownBtn.addEventListener("click", async () => {
   if (confirm("Are you sure you want to shut down the API Gateway?")) {
     renderLogEvent({ event: "system", detail: "Sending API Gateway shutdown request..." });
     try {
@@ -601,9 +672,9 @@ shutdownBtn.addEventListener("click", async () => {
   }
 });
 
-// ----------------------------------------------------------------------------
+// -----------------------------------------------------------------------
 // WEBSOCKET & WEB AUDIO CHUNK STREAMING SYSTEM
-// ----------------------------------------------------------------------------
+// -----------------------------------------------------------------------
 let streamSocket = null;
 let audioContext = null;
 let audioStartTime = 0;
@@ -611,51 +682,99 @@ let activeSources = [];
 
 function connectWebSocketStream() {
   const wsUrl = `ws://${window.location.hostname || "localhost"}:${API_PORT}/stream`;
-  renderLogEvent({ event: "system", detail: "Connecting to WebSocket streaming pipeline..." });
+  console.log("[WS] Connecting to WebSocket streaming pipeline:", wsUrl);
+  renderLogEvent({ event: "ws_connecting", detail: { url: wsUrl } });
   streamSocket = new WebSocket(wsUrl);
   
   streamSocket.onopen = () => {
+    console.log("[WS] WebSocket streaming pipeline connected");
     const badge = document.getElementById("streaming-badge");
     if (badge) {
       badge.textContent = "Pipeline: WEBSOCKET STREAMING 🟢";
       badge.style.color = "#10b981";
     }
-    renderLogEvent({ event: "system", detail: "WebSocket streaming pipeline connected." });
+    renderLogEvent({ event: "ws_connected", detail: { url: wsUrl } });
     
     // Initialize Web Audio Context for gapless chunk scheduling
+    // Must resume it since it may be suspended (autoplay policy)
     const AudioCtx = window.AudioContext || window.webkitAudioContext;
-    audioContext = new AudioCtx();
+    if (!audioContext) {
+      audioContext = new AudioCtx();
+    }
+    if (audioContext.state === "suspended") {
+      audioContext.resume().then(() => {
+        console.log("[Audio] AudioContext resumed after user gesture");
+      });
+    }
     audioStartTime = audioContext.currentTime;
   };
   
   streamSocket.onmessage = async (event) => {
     if (typeof event.data === "string") {
       const msg = JSON.parse(event.data);
+      console.log("[WS] Received string message:", msg.type);
       if (msg.type === "stop_audio") {
         stopAllQueuedAudio();
+      } else if (msg.type === "llm_response") {
+        console.log("[WS] LLM response received:", msg.text);
+        renderLogEvent({ event: "llm_response", detail: { text: msg.text } });
+        if (agentResponseDiv) {
+          agentResponseDiv.textContent = msg.text;
+          agentResponseDiv.classList.remove("empty");
+        }
+        
+        // Update LLM Response Card metadata
+        const modelEl = document.getElementById("llm-model");
+        const tokensEl = document.getElementById("llm-tokens");
+        const latencyEl = document.getElementById("llm-latency");
+        if (modelEl) modelEl.textContent = VOICE_CONFIG.llm_model || "llama-3.3-70b-versatile";
+        if (tokensEl) tokensEl.textContent = msg.tokens || "-";
+        if (latencyEl) latencyEl.textContent = (msg.latency_ms ? msg.latency_ms + "ms" : "-");
+        
+        console.log("[WS] Updated Agent Response Panel with LLM response");
+        renderLogEvent({ event: "agent_panel_updated", detail: { text: msg.text.slice(0, 60) } });
+      } else if (msg.type === "error") {
+        renderLogEvent({ event: "error", detail: { message: `Pipeline error: ${msg.detail}` } });
       }
     } else {
+      // Binary audio chunk
+      console.log("[WS] Received audio chunk, size:", event.data.size || "?");
+      renderLogEvent({ event: "audio_chunk_received", detail: { size: event.data.size } });
       const arrayBuffer = await event.data.arrayBuffer();
       decodeAndScheduleChunk(arrayBuffer);
     }
   };
   
   streamSocket.onerror = (e) => {
-    console.error("WebSocket stream error:", e);
+    console.error("[WS] WebSocket stream error:", e);
+    renderLogEvent({ event: "error", detail: { message: "WebSocket stream error. Falling back to REST." } });
   };
   
-  streamSocket.onclose = () => {
+  streamSocket.onclose = (e) => {
+    console.log("[WS] WebSocket stream closed:", e.code, e.reason);
     const badge = document.getElementById("streaming-badge");
     if (badge) {
       badge.textContent = "Pipeline: REST";
       badge.style.color = "#a3a3a3";
     }
-    renderLogEvent({ event: "system", detail: "WebSocket streaming pipeline disconnected. Falling back to REST." });
+    renderLogEvent({ event: "ws_disconnected", detail: { code: e.code, reason: e.reason || "connection closed" } });
+    streamSocket = null;
   };
 }
 
 async function decodeAndScheduleChunk(arrayBuffer) {
-  if (!audioContext) return;
+  if (!audioContext) {
+    console.warn("[Audio] No AudioContext available, skipping chunk");
+    return;
+  }
+  // Resume if suspended (autoplay policy)
+  if (audioContext.state === "suspended") {
+    try {
+      await audioContext.resume();
+    } catch (e) {
+      console.warn("[Audio] Could not resume AudioContext:", e);
+    }
+  }
   try {
     const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
     
@@ -676,11 +795,14 @@ async function decodeAndScheduleChunk(arrayBuffer) {
     
     if (window.dispatchTelemetryEvent && activeSources.length === 1) {
       window.dispatchTelemetryEvent("playback_start", {});
+      renderLogEvent({ event: "playback_started", detail: { source: "websocket_chunk" } });
     }
     
     source.onended = () => {
       activeSources = activeSources.filter(s => s !== source);
       if (activeSources.length === 0) {
+        console.log("[Audio] All audio chunks played");
+        renderLogEvent({ event: "playback_completed", detail: { source: "websocket_chunk" } });
         updateUIState("connected", "Listening...");
         if (window.dispatchTelemetryEvent) {
           window.dispatchTelemetryEvent("playback_end", {});
@@ -688,7 +810,8 @@ async function decodeAndScheduleChunk(arrayBuffer) {
       }
     };
   } catch (e) {
-    console.warn("Failed to decode audio chunk:", e);
+    console.error("[Audio] Failed to decode audio chunk:", e.message);
+    renderLogEvent({ event: "error", detail: { message: `Audio decode failed: ${e.message}` } });
     if (activeSources.length === 0) {
       updateUIState("connected", "Listening...");
     }
@@ -710,13 +833,14 @@ function stopAllQueuedAudio() {
   }
 }
 
-// ----------------------------------------------------------------------------
+// -----------------------------------------------------------------------
 // ROOM CONNECTIONS
-// ----------------------------------------------------------------------------
+// -----------------------------------------------------------------------
 async function fetchToken(sessionId, roomName) {
   const url = `http://${window.location.hostname || "localhost"}:${API_PORT}/auth`;
+  console.log("[Auth] Requesting LiveKit token from:", url);
   updateUIState("connecting", "Retrieving Token...");
-  renderLogEvent({ event: "system", detail: { msg: "Requesting LiveKit token from API Gateway...", url } });
+  renderLogEvent({ event: "auth_request", detail: { msg: "Requesting LiveKit token from API Gateway...", url } });
   
   try {
     const response = await fetch(url, {
@@ -730,26 +854,27 @@ async function fetchToken(sessionId, roomName) {
       })
     });
     if (!response.ok) {
-      throw new Error(`HTTP error! Status: ${response.status}`);
+      const errText = await response.text();
+      throw new Error(`HTTP ${response.status}: ${errText}`);
     }
     const data = await response.json();
-    renderLogEvent({ event: "system", detail: { msg: "Token successfully retrieved from API Gateway." } });
-    
-    renderLogEvent({ event: "system", detail: { msg: `LLM Provider Loaded: ${data.llm_provider} (Model: ${data.llm_model})` } });
-    renderLogEvent({ event: "system", detail: { msg: `TTS Provider Loaded: ${data.tts_provider}` } });
-    renderLogEvent({ event: "system", detail: { msg: `STT Provider Loaded: ${data.stt_provider}` } });
+    console.log("[Auth] Token received. LLM:", data.llm_provider, "TTS:", data.tts_provider, "STT:", data.stt_provider);
+    renderLogEvent({ event: "auth_success", detail: { msg: "Token successfully retrieved." } });
+    renderLogEvent({ event: "system", detail: { msg: `LLM: ${data.llm_provider} (${data.llm_model}) | TTS: ${data.tts_provider} | STT: ${data.stt_provider}` } });
     
     return { token: data.token, livekitUrl: data.livekit_url };
   } catch (err) {
-    console.error("Token fetch failed:", err);
-    throw new Error(`Failed to connect to API Gateway at ${url}. Ensure the gateway service is running on port ${API_PORT}. Details: ${err.message}`);
+    console.error("[Auth] Token fetch failed:", err);
+    throw new Error(`Failed to connect to API Gateway at ${url}. Ensure the gateway is running on port ${API_PORT}. Details: ${err.message}`);
   }
 }
 
 async function connectToRoom(token, livekitUrl) {
   const LK = window.LivekitClient || window.LiveKitClient || window.LiveKit || window.Livekit;
   if (!LK) {
-    throw new Error("LiveKit SDK not found. Verify that livekit-client.umd.min.js was loaded correctly.");
+    console.warn("[LiveKit] SDK not found — skipping WebRTC room connection");
+    renderLogEvent({ event: "system", detail: { msg: "LiveKit SDK unavailable — using REST/WebSocket pipeline only." } });
+    return;
   }
   
   const { Room, RoomEvent } = LK;
@@ -757,65 +882,124 @@ async function connectToRoom(token, livekitUrl) {
   room = new Room();
   
   room.on(RoomEvent.TrackSubscribed, (track, publication, participant) => {
+    if (room.localParticipant && participant.identity === room.localParticipant.identity) {
+      console.log("[LiveKit] Ignored subscribing to our own track to prevent loopback/echo");
+      return;
+    }
     if (track.kind === "audio") {
       track.attach(audioEl);
+      console.log("[LiveKit] Audio track subscribed from:", participant.identity);
       renderLogEvent({ event: "track_subscribed", detail: { track_kind: "audio", identity: participant.identity } });
     }
   });
 
   room.on(RoomEvent.ParticipantConnected, (participant) => {
+    console.log("[LiveKit] Participant connected:", participant.identity);
     renderLogEvent({ event: "participant_connected", detail: { identity: participant.identity } });
   });
 
-  updateUIState("connecting", "Connecting Room...");
-  
+  room.on(RoomEvent.Disconnected, (reason) => {
+    console.warn("[LiveKit] Room disconnected:", reason);
+    renderLogEvent({ event: "room_disconnected", detail: { reason } });
+  });
+
   const fallbackLkUrl = (VOICE_CONFIG.livekit_url) || `ws://${window.location.hostname || "localhost"}:7800`;
   const url = livekitUrl || fallbackLkUrl;
-  renderLogEvent({ event: "system", detail: { msg: `Connecting browser WebRTC to LiveKit server at ${url}...` } });
+  console.log("[LiveKit] Connecting browser WebRTC to:", url);
+  renderLogEvent({ event: "livekit_connecting", detail: { url } });
   
-  await room.connect(url, token);
-  
-  updateUIState("connected", "Listening...");
-  joinBtn.textContent = "Session Active";
-  joinBtn.classList.add("connected");
-  joinBtn.disabled = true;
-  
-  renderLogEvent({ event: "room_joined", detail: { room: room.name } });
+  try {
+    await room.connect(url, token);
+    console.log("[LiveKit] Room connected:", room.name);
+    renderLogEvent({ event: "room_joined", detail: { room: room.name } });
+    
+    await room.localParticipant.setMicrophoneEnabled(true);
+    console.log("[LiveKit] Microphone published to room");
+    renderLogEvent({ event: "mic_published", detail: { room: room.name } });
+  } catch (lkErr) {
+    console.warn("[LiveKit] Room connection failed (non-fatal):", lkErr.message);
+    renderLogEvent({ event: "livekit_error", detail: { msg: `LiveKit failed (non-fatal): ${lkErr.message}. STT/TTS still active.` } });
+  }
+}
 
-  await room.localParticipant.setMicrophoneEnabled(true);
-  renderLogEvent({ event: "track_published", detail: { track_kind: "audio" } });
+// -----------------------------------------------------------------------
+// JOIN BUTTON — Main Entry Point
+// -----------------------------------------------------------------------
+joinBtn.addEventListener("click", async () => {
+  if (sessionActive) return;
+  
+  console.log("[Join] Join Session button clicked. Session ID:", sessionId);
+  renderLogEvent({ event: "session_start", detail: { session_id: sessionId, room: roomName } });
+  
+  joinBtn.disabled = true;
+  joinBtn.querySelector("span").textContent = "Connecting...";
+
+  // ---- Step 1: Fetch auth token from backend (required) ----
+  let connectionInfo;
+  try {
+    connectionInfo = await fetchToken(sessionId, roomName);
+  } catch (err) {
+    console.error("[Join] Auth failed:", err.message);
+    renderLogEvent({ event: "error", detail: { message: err.message } });
+    updateUIState("error", "Auth Failed");
+    joinBtn.disabled = false;
+    joinBtn.querySelector("span").textContent = "Join Session";
+    return;
+  }
+
+  // ---- Step 2: Activate session — start STT + WebSocket immediately ----
+  sessionActive = true;
+  updateUIState("connected", "Listening...");
+  joinBtn.querySelector("span").textContent = "Session Active";
+  joinBtn.classList.add("connected");
+  
+  console.log("[Join] Session activated — starting STT and WebSocket pipeline");
+  renderLogEvent({ event: "session_active", detail: { session_id: sessionId } });
+  
+  // Resume AudioContext for audio playback (must happen in user gesture context)
+  const AudioCtx = window.AudioContext || window.webkitAudioContext;
+  if (!audioContext) {
+    audioContext = new AudioCtx();
+    console.log("[Audio] AudioContext created in user gesture:", audioContext.state);
+  }
+  if (audioContext.state === "suspended") {
+    audioContext.resume().then(() => console.log("[Audio] AudioContext resumed"));
+  }
   
   startSpeechRecognition();
   connectWebSocketStream();
-}
-
-joinBtn.addEventListener("click", async () => {
-  try {
-    const connectionInfo = await fetchToken(sessionId, roomName);
-    await connectToRoom(connectionInfo.token, connectionInfo.livekitUrl);
-  } catch (err) {
-    renderLogEvent({ event: "error", detail: { message: err.message } });
-    updateUIState("error", "Connection Failed");
-  }
+  
+  // ---- Step 3: Connect to LiveKit (optional / non-blocking) ----
+  // LiveKit provides agent-side audio track and server-side VAD.
+  // This runs in background — failure does NOT break STT→LLM→TTS flow.
+  connectToRoom(connectionInfo.token, connectionInfo.livekitUrl)
+    .catch(err => {
+      console.warn("[Join] LiveKit background connect failed:", err.message);
+    });
 });
 
+// Log LiveKit SDK presence at startup
 const LK_LIBRARY = window.LivekitClient || window.LiveKitClient || window.LiveKit || window.Livekit;
 if (LK_LIBRARY) {
-  renderLogEvent({ event: "system", detail: { msg: "LiveKit Client SDK verified and loaded successfully." } });
+  console.log("[LiveKit] Client SDK verified and loaded successfully.");
+  renderLogEvent({ event: "system", detail: { msg: "LiveKit Client SDK loaded successfully." } });
 } else {
-  renderLogEvent({ event: "error", detail: { message: "LiveKit SDK not found. Make sure livekit-client.umd.min.js exists." } });
+  console.warn("[LiveKit] SDK not found. Falling back to REST/WebSocket pipeline only.");
+  renderLogEvent({ event: "system", detail: { msg: "⚠️ LiveKit SDK not found — REST/WebSocket pipeline will be used." } });
 }
 
-// ----------------------------------------------------------------------------
+// -----------------------------------------------------------------------
 // TELEMETRY UPDATERS (DEVELOPER MODE PANEL)
-// ----------------------------------------------------------------------------
-toggleDashboardBtn.addEventListener("click", () => {
-  if (metricsPanel.style.display === "none") {
-    metricsPanel.style.display = "flex";
-  } else {
-    metricsPanel.style.display = "none";
-  }
-});
+// -----------------------------------------------------------------------
+if (toggleDashboardBtn) {
+  toggleDashboardBtn.addEventListener("click", () => {
+    if (metricsPanel.style.display === "none" || metricsPanel.style.display === "") {
+      metricsPanel.style.display = "flex";
+    } else {
+      metricsPanel.style.display = "none";
+    }
+  });
+}
 
 // Browser FPS tracker
 let lastFrameTime = performance.now();
@@ -826,7 +1010,8 @@ function updateFPS() {
   const fpsInterval = (VOICE_CONFIG.ui && VOICE_CONFIG.ui.fps_calc_interval_ms) || 1000;
   if (now > lastFrameTime + fpsInterval) {
     const fps = Math.round((frameCount * 1000) / (now - lastFrameTime));
-    document.getElementById("browser-fps").textContent = fps;
+    const el = document.getElementById("browser-fps");
+    if (el) el.textContent = fps;
     frameCount = 0;
     lastFrameTime = now;
   }
@@ -840,7 +1025,8 @@ function checkLoopLag() {
   const now = performance.now();
   const lagInterval = (VOICE_CONFIG.ui && VOICE_CONFIG.ui.loop_lag_interval_ms) || 50;
   const lag = Math.max(0, now - lastLoopTime - lagInterval);
-  document.getElementById("browser-loop").textContent = lag.toFixed(1);
+  const el = document.getElementById("browser-loop");
+  if (el) el.textContent = lag.toFixed(1);
   lastLoopTime = now;
   setTimeout(checkLoopLag, lagInterval);
 }
@@ -848,10 +1034,12 @@ const initialLagInterval = (VOICE_CONFIG.ui && VOICE_CONFIG.ui.loop_lag_interval
 setTimeout(checkLoopLag, initialLagInterval);
 
 setInterval(() => {
-  document.getElementById("browser-dom").textContent = document.getElementsByTagName('*').length;
+  const domEl = document.getElementById("browser-dom");
+  if (domEl) domEl.textContent = document.getElementsByTagName('*').length;
+  const heapEl = document.getElementById("browser-heap");
   const mem = window.performance?.memory;
   const heap = mem ? (mem.usedJSHeapSize / (1024 * 1024)).toFixed(1) : "-";
-  document.getElementById("browser-heap").textContent = heap;
+  if (heapEl) heapEl.textContent = heap;
 }, (VOICE_CONFIG.ui && VOICE_CONFIG.ui.dom_heap_interval_ms) || 1000);
 
 // WebRTC peer connection stats
@@ -871,16 +1059,19 @@ async function updateWebRTCStats() {
         bitrate = report.bytesReceived ? ((report.bytesReceived * 8) / 1000).toFixed(0) + " kbps" : "-";
       }
     });
-    document.getElementById("webrtc-jitter").textContent = jitter;
-    document.getElementById("webrtc-loss").textContent = packetsLost;
-    document.getElementById("webrtc-bitrate").textContent = bitrate;
+    const jEl = document.getElementById("webrtc-jitter");
+    const lEl = document.getElementById("webrtc-loss");
+    const bEl = document.getElementById("webrtc-bitrate");
+    if (jEl) jEl.textContent = jitter;
+    if (lEl) lEl.textContent = packetsLost;
+    if (bEl) bEl.textContent = bitrate;
   } catch (e) {
-    console.warn("Failed fetching WebRTC connection stats:", e);
+    console.warn("[WebRTC] Failed fetching connection stats:", e);
   }
 }
 setInterval(updateWebRTCStats, (VOICE_CONFIG.ui && VOICE_CONFIG.ui.webrtc_stats_interval_ms) || 2000);
 
-// Helper function to update a latency table row in index.html
+// Helper function to update a latency table row
 function updateRow(rowId, stats, targetMs) {
   const row = document.getElementById(rowId);
   if (!row) return;
@@ -891,30 +1082,34 @@ function updateRow(rowId, stats, targetMs) {
   const p95p99Cell = row.querySelector(".val-p95p99");
   const statusCell = row.querySelector(".val-status");
   
+  if (!currCell) return;
+  
   if (stats.curr === 0) {
     currCell.textContent = "-";
-    avgCell.textContent = "-";
-    minmaxCell.textContent = "-";
-    p95p99Cell.textContent = "-";
-    statusCell.textContent = "-";
+    if (avgCell) avgCell.textContent = "-";
+    if (minmaxCell) minmaxCell.textContent = "-";
+    if (p95p99Cell) p95p99Cell.textContent = "-";
+    if (statusCell) statusCell.textContent = "-";
     return;
   }
   
   currCell.textContent = `${stats.curr}ms`;
-  avgCell.textContent = `${stats.avg}ms`;
-  minmaxCell.textContent = `${stats.min}ms / ${stats.max}ms`;
-  p95p99Cell.textContent = `${stats.p95}ms / ${stats.p99}ms`;
+  if (avgCell) avgCell.textContent = `${stats.avg}ms`;
+  if (minmaxCell) minmaxCell.textContent = `${stats.min}ms / ${stats.max}ms`;
+  if (p95p99Cell) p95p99Cell.textContent = `${stats.p95}ms / ${stats.p99}ms`;
   
-  // Set thresholds colors
-  if (stats.curr <= targetMs) {
-    statusCell.textContent = "🟢";
-    currCell.style.color = "#10b981";
-  } else if (stats.curr <= targetMs * 1.5) {
-    statusCell.textContent = "🟡";
-    currCell.style.color = "#f59e0b";
-  } else {
-    statusCell.textContent = "🔴";
-    currCell.style.color = "#ef4444";
+  // Set threshold colors
+  if (statusCell) {
+    if (stats.curr <= targetMs) {
+      statusCell.textContent = "🟢";
+      currCell.style.color = "#10b981";
+    } else if (stats.curr <= targetMs * 1.5) {
+      statusCell.textContent = "🟡";
+      currCell.style.color = "#f59e0b";
+    } else {
+      statusCell.textContent = "🔴";
+      currCell.style.color = "#ef4444";
+    }
   }
 }
 
@@ -933,24 +1128,27 @@ async function pollTelemetryData() {
     healthPollAttempted = true;
     const data = await response.json();
     
-    // Server resource details
-    document.getElementById("server-cpu").textContent = data.resources.cpu;
-    document.getElementById("server-ram").textContent = data.resources.ram;
-    document.getElementById("server-threads").textContent = data.resources.threads;
-    document.getElementById("server-tasks").textContent = data.resources.async_tasks;
-    document.getElementById("server-session").textContent = sessionId;
+    // Server resource details — using actual IDs from dashboard HTML
+    const cpuEl = document.getElementById("live-cpu");
+    const ramEl = document.getElementById("live-memory");
+    if (cpuEl && data.resources) cpuEl.textContent = `${data.resources.cpu}%`;
+    if (ramEl && data.resources) ramEl.textContent = `${data.resources.ram} MB`;
     
     // Token usage cost meters
-    document.getElementById("metrics-prompt-tokens").textContent = data.tokens.prompt_tokens;
-    document.getElementById("metrics-completion-tokens").textContent = data.tokens.completion_tokens;
-    document.getElementById("metrics-cost").textContent = `$${data.tokens.cost.toFixed(4)}`;
+    const pTokEl = document.getElementById("metrics-prompt-tokens");
+    const cTokEl = document.getElementById("metrics-completion-tokens");
+    const costEl = document.getElementById("metrics-cost");
+    const tpsEl = document.getElementById("live-tokens-sec");
+    if (pTokEl && data.tokens) pTokEl.textContent = data.tokens.prompt_tokens;
+    if (cTokEl && data.tokens) cTokEl.textContent = data.tokens.completion_tokens;
+    if (costEl && data.tokens) costEl.textContent = `$${data.tokens.cost.toFixed(4)}`;
     
     // Speed estimator
-    if (data.total.curr > 0 && data.tokens.completion_tokens > 0) {
+    if (data.total && data.total.curr > 0 && data.tokens && data.tokens.completion_tokens > 0) {
       const speed = (data.tokens.completion_tokens / (data.total.curr / 1000)).toFixed(1);
-      document.getElementById("metrics-tokens-sec").textContent = `${speed} t/s`;
+      if (tpsEl) tpsEl.textContent = `${speed} t/s`;
     } else {
-      document.getElementById("metrics-tokens-sec").textContent = "- t/s";
+      if (tpsEl) tpsEl.textContent = "- t/s";
     }
     
     // Service Health light states
@@ -966,15 +1164,17 @@ async function pollTelemetryData() {
       dot.style.boxShadow = healthy ? "0 0 8px #10b981" : "0 0 8px #ef4444";
     };
     
-    updateService("api", data.services.api_gateway);
-    updateService("redis", data.services.redis);
-    updateService("orch", data.services.orchestrator);
-    updateService("media", data.services.media_gateway);
+    if (data.services) {
+      updateService("api", data.services.api_gateway);
+      updateService("redis", data.services.redis);
+      updateService("orch", data.services.orchestrator);
+      updateService("media", data.services.media_gateway);
+    }
     
     const thresholds = VOICE_CONFIG.latency_threshold_targets || {};
-    updateRow("metric-row-llm", data.llm, thresholds.llm || 800);
-    updateRow("metric-row-tts", data.tts, thresholds.tts || 250);
-    updateRow("metric-row-total", data.total, thresholds.total || 1200);
+    if (data.llm) updateRow("metric-row-llm", data.llm, thresholds.llm || 800);
+    if (data.tts) updateRow("metric-row-tts", data.tts, thresholds.tts || 250);
+    if (data.total) updateRow("metric-row-total", data.total, thresholds.total || 1200);
     
     // Calculate and render local STT and Network statistics
     const getLocalStats = (vals) => {
@@ -1000,30 +1200,32 @@ async function pollTelemetryData() {
     
     // Realtime diagnostics report panel
     const bottleneckDiv = document.getElementById("bottleneck-info");
-    let report = "";
-    if (data.total.curr === 0) {
-      report = "No conversation data analyzed yet. Talk to the agent to start latency profiling!";
-    } else {
-      const slowStage = (data.llm.curr > data.tts.curr) ? "LLM (Groq)" : "TTS (Cartesia)";
-      const slowLat = Math.max(data.llm.curr, data.tts.curr);
-      report = `Slowest Stage: ${slowStage} (${slowLat}ms)<br/>`;
-      
-      const totalTarget = (VOICE_CONFIG.latency_threshold_targets || {}).total || 1200;
-      if (data.total.curr > totalTarget) {
-        report += `<span style="color:#ef4444;">🔴 Bottleneck detected. Total turn latency is ${data.total.curr}ms (Target: <${totalTarget}ms).</span><br/>`;
-        report += `Suggestion: Configure local semantic caches or restrict LLM generation sizes to speed up response.`;
+    if (bottleneckDiv) {
+      let report = "";
+      if (!data.total || data.total.curr === 0) {
+        report = "No conversation data analyzed yet. Talk to the agent to start latency profiling!";
       } else {
-        report += `<span style="color:#10b981;">🟢 System latency is healthy (${data.total.curr}ms).</span>`;
+        const slowStage = (data.llm.curr > data.tts.curr) ? "LLM (Groq)" : "TTS (Cartesia)";
+        const slowLat = Math.max(data.llm.curr, data.tts.curr);
+        report = `Slowest Stage: ${slowStage} (${slowLat}ms)<br/>`;
+        
+        const totalTarget = (VOICE_CONFIG.latency_threshold_targets || {}).total || 1200;
+        if (data.total.curr > totalTarget) {
+          report += `<span style="color:#ef4444;">🔴 Bottleneck detected. Total turn latency is ${data.total.curr}ms (Target: <${totalTarget}ms).</span><br/>`;
+          report += `Suggestion: Configure local semantic caches or restrict LLM generation sizes to speed up response.`;
+        } else {
+          report += `<span style="color:#10b981;">🟢 System latency is healthy (${data.total.curr}ms).</span>`;
+        }
       }
+      bottleneckDiv.innerHTML = report;
     }
-    bottleneckDiv.innerHTML = report;
     
   } catch (err) {
     if (!healthPollAttempted) {
       healthPollAttempted = true;
       replaceCheckingStatus();
     }
-    console.warn("Telemetry polling failed:", err);
+    // Only warn once — don't spam when services aren't up yet
   }
 }
 
@@ -1041,5 +1243,6 @@ function replaceCheckingStatus() {
     }
   });
 }
+
 const pollInterval = VOICE_CONFIG.telemetry_refresh_rate_ms || 2000;
 setInterval(pollTelemetryData, pollInterval);

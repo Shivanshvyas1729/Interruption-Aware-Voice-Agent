@@ -41,6 +41,8 @@ def get_redis_client():
     
     try:
         import redis
+        from redis.retry import Retry
+        from redis.backoff import ExponentialBackoff
         
         # Parse URL to determine if TLS is needed
         redis_url = settings.redis_url.strip().strip("'\"")
@@ -50,19 +52,23 @@ def get_redis_client():
         
         # Create client with production-grade settings
         # redis.from_url handles SSL automatically for rediss:// URLs
-        client = redis.from_url(
-            redis_url,
-            decode_responses=True,
+        conn_kwargs = {
+            "decode_responses": True,
             # Connection pooling
-            max_connections=20,
+            "max_connections": 20,
             # Timeouts
-            socket_timeout=5.0,
-            socket_connect_timeout=5.0,
+            "socket_timeout": 5.0,
+            "socket_connect_timeout": 5.0,
             # Retry
-            retry_on_timeout=True,
+            "retry": Retry(ExponentialBackoff(cap=10, base=0.1), 3),
+            "retry_on_timeout": True,
             # Health checks
-            health_check_interval=30,
-        )
+            "health_check_interval": 30,
+        }
+        if use_ssl:
+            conn_kwargs["ssl_cert_reqs"] = None
+            
+        client = redis.from_url(redis_url, **conn_kwargs)
         
         # Verify connection viability
         client.ping()
@@ -91,6 +97,8 @@ def get_redis_client():
                 turn_id="system",
                 detail={"error": str(e), "msg": "Redis authentication failed. Check password."}
             )
+        if settings.env != "test":
+            raise
         return None
     except redis.ConnectionError as e:
         if not _redis_logged_error:
@@ -101,6 +109,8 @@ def get_redis_client():
                 turn_id="system",
                 detail={"error": str(e), "msg": "Redis connection failed (timeout/refused)."}
             )
+        if settings.env != "test":
+            raise
         return None
     except redis.InvalidResponse as e:
         if not _redis_logged_error:
@@ -111,6 +121,8 @@ def get_redis_client():
                 turn_id="system",
                 detail={"error": str(e), "msg": "Redis protocol error (wrong port/TLS?)."}
             )
+        if settings.env != "test":
+            raise
         return None
     except Exception as e:
         if not _redis_logged_error:
@@ -121,6 +133,8 @@ def get_redis_client():
                 turn_id="system",
                 detail={"error": str(e), "msg": "Redis connection failed. Falling back to memory-store."}
             )
+        if settings.env != "test":
+            raise
         return None
 
 
@@ -169,6 +183,8 @@ def save_turn(session_id: str, turn_id: str, role: str, content: str):
                 turn_id=turn_id,
                 detail={"error": str(e), "msg": "Failing over to memory-store."}
             )
+            if get_settings().env != "test":
+                raise
             
     # In-memory database fallback
     if session_id not in _memory_db:
@@ -198,6 +214,8 @@ def load_history(session_id: str) -> list[dict]:
                 turn_id="system",
                 detail={"error": str(e), "msg": "Failing over to memory-store."}
             )
+            if get_settings().env != "test":
+                raise
             
     # In-memory database fallback (return a deepcopy to simulate new objects like Redis JSON load)
     import copy
@@ -211,7 +229,8 @@ def clear_session(session_id: str):
         key = f"session:{session_id}:history"
         try:
             client.delete(key)
-        except Exception:
-            pass
+        except Exception as e:
+            if get_settings().env != "test":
+                raise
     if session_id in _memory_db:
         del _memory_db[session_id]

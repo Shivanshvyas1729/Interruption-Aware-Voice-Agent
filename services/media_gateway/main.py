@@ -3,7 +3,7 @@ import uvicorn
 from fastapi import FastAPI
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
-from services.media_gateway.room_manager import create_room, stop_tts_relay
+from services.media_gateway.room_manager import create_room, stop_tts_relay, cleanup_session
 from common.logging.logger import get_logger
 
 logger = get_logger("media-gateway")
@@ -20,11 +20,20 @@ class TTSControlRequest(BaseModel):
     session_id: str
     action: str
 
+class SessionCleanupRequest(BaseModel):
+    session_id: str
+
 @app.post("/tts-control")
 async def tts_control(req: TTSControlRequest):
     """Control active audio streaming contexts (e.g. stop relaying on user interruption)."""
     if req.action == "stop":
         stop_tts_relay(req.session_id)
+    return {"status": "ok"}
+
+@app.post("/control/cleanup")
+async def control_cleanup(req: SessionCleanupRequest):
+    """Clean up active session state in the media gateway."""
+    cleanup_session(req.session_id)
     return {"status": "ok"}
 
 @app.get("/health")

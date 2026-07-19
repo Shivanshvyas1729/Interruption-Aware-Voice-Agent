@@ -16,6 +16,9 @@ from services.orchestrator.async_pipeline import get_pipeline, get_cancel_token,
 logger = get_logger("api-gateway")
 app = FastAPI(title="API Gateway")
 
+# Log service startup
+logger.log_service_start("api-gateway", detail={"port": vc_get("ports.api_gateway", 8003)})
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -94,6 +97,8 @@ async def chat_route(req: ChatRequest):
     import os
     import traceback
     
+    print(f"\n[/chat] === REQUEST RECEIVED | session={req.session_id} | text={req.text!r} ===")
+    
     try:
         # 1. Access the session FSM, reset cancellation state, and dispatch transcript
         from services.orchestrator.cancellation_manager import cancellation_manager
@@ -101,14 +106,18 @@ async def chat_route(req: ChatRequest):
         
         from services.orchestrator.fsm import get_fsm_for_session
         fsm = get_fsm_for_session(req.session_id)
+        print(f"[/chat] FSM state before turn: {fsm.state}, turn_id={fsm.turn_id}")
         
         chat_start = time.time()
         telemetry_bus.push("stt_final", {"text": req.text, "session_id": req.session_id}, req.session_id, str(fsm.turn_id + 1))
         
+        print(f"[/chat] Calling fsm.receive_transcript...")
         reply_text, audio_bytes = fsm.receive_transcript(req.text)
+        print(f"[/chat] fsm.receive_transcript returned: reply={reply_text!r}, audio_bytes={len(audio_bytes) if audio_bytes else 0} bytes")
         
         budget = get_token_budget(req.session_id)
         if reply_text is None:
+            print(f"[/chat] Turn was cancelled (reply_text is None), FSM state={fsm.state}")
             telemetry_bus.push("cancellation", {"reason": "turn_cancelled", "fsm_state": fsm.state}, req.session_id, str(fsm.turn_id))
             return {
                 "reply": "",
@@ -139,11 +148,14 @@ async def chat_route(req: ChatRequest):
         if audio_bytes:
             try:
                 audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
+                print(f"[/chat] Audio encoded to base64: {len(audio_b64)} chars (original {len(audio_bytes)} bytes)")
             except Exception as tts_ex:
                 print("\n=== TTS ENCODING FAILED ===")
                 traceback.print_exc()
                 print("============================\n")
                 tts_error = str(tts_ex)
+        else:
+            print(f"[/chat] WARNING: audio_bytes is empty! TTS may have failed.")
                 
         # 4. Log details to local file
         os.makedirs("logs", exist_ok=True)
@@ -151,6 +163,8 @@ async def chat_route(req: ChatRequest):
             f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Session: {req.session_id} Turn: {fsm.turn_id}\n")
             f.write(f"  User: {req.text}\n")
             f.write(f"  Agent: {reply_text}\n")
+            f.write(f"  LLM latency: {fsm.last_llm_latency}ms | TTS latency: {fsm.last_tts_latency}ms | Total: {fsm.last_total_latency}ms\n")
+            f.write(f"  Audio bytes: {len(audio_bytes) if audio_bytes else 0}\n")
             if tts_error:
                 f.write(f"  TTS Error: {tts_error}\n")
             f.write("\n")
@@ -179,6 +193,8 @@ async def chat_route(req: ChatRequest):
             "cumulative_cost": _token_metrics["cost"],
             "budget_pct": budget.usage_pct
         }, req.session_id, str(fsm.turn_id))
+        
+        print(f"[/chat] === RESPONSE READY | reply={reply_text!r} | audio_b64_len={len(audio_b64)} | tts_error={tts_error} ===\n")
             
         return {
             "reply": reply_text,
@@ -202,7 +218,7 @@ async def chat_route(req: ChatRequest):
         print("\n=== EXCEPTION IN CHAT ROUTE ===")
         traceback.print_exc()
         print("===============================\n")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {str(e)}")
 
 # Metrics history tracking dictionary
 _metrics_history = {
@@ -332,12 +348,10 @@ async def control_cancel(req: CancelRequest):
 @app.post("/control/reset")
 async def control_reset(req: ResetRequest):
     """Clears conversational history from Redis and resets FSM turn counters."""
-    from services.orchestrator.state_store import get_redis_client
+    from services.orchestrator.state_store import clear_session
     from services.orchestrator.fsm import get_fsm_for_session
     try:
-        client = get_redis_client()
-        if client:
-            client.delete(f"history:{req.session_id}")
+        clear_session(req.session_id)
     except Exception:
         pass
     fsm = get_fsm_for_session(req.session_id)
@@ -594,8 +608,7 @@ async def websocket_stream(websocket: WebSocket):
         pipeline.start()
         logger.log("pipeline_started", "system", "system", detail={})
     except Exception as e:
-        logger.log("pipeline_start_error", "system", "system",
-                   detail={"error": str(e), "traceback": traceback.format_exc()})
+        logger.log_error("pipeline_start_error", "system", "system", e)
         await websocket.send_json({"type": "error", "detail": "Pipeline initialization failed"})
         await websocket.close()
         return
@@ -604,60 +617,87 @@ async def websocket_stream(websocket: WebSocket):
         try:
             while True:
                 chunk = await audio_queue.get()
-                await websocket.send_bytes(chunk)
+                if isinstance(chunk, dict):
+                    await websocket.send_json(chunk)
+                else:
+                    await websocket.send_bytes(chunk)
                 audio_queue.task_done()
         except asyncio.CancelledError:
-            pass
+            logger.log("ws_send_loop_cancelled", session_id or "?", "system", detail={})
         except Exception as e:
-            logger.log("ws_send_error", session_id or "?", "system",
-                       detail={"error": str(e)})
-            
+            logger.log_error("ws_send_error", session_id or "?", "system", e)
+    
     send_task = asyncio.create_task(send_audio_loop())
     active_tasks.append(send_task)
     
     try:
         while True:
-            data = await websocket.receive_json()
-            if data["type"] == "transcript":
+            try:
+                data = await websocket.receive_json()
+            except WebSocketDisconnect:
+                raise
+            except Exception as e:
+                logger.log_error("ws_receive_error", session_id or "?", "system", e)
+                continue
+                
+            if data.get("type") == "transcript":
                 session_id = data["session_id"]
                 text = data["text"]
                 
                 logger.log("stt_received", session_id, "system",
                            detail={"text": text[:80]})
                 
-                cancel_token = get_cancel_token(session_id)
-                cancel_token.reset()
-                
-                pipeline.register_playback_client(session_id, audio_queue)
-                
-                await pipeline.submit_transcript(session_id, text)
-                
-            elif data["type"] == "cancel":
+                try:
+                    cancel_token = get_cancel_token(session_id)
+                    cancel_token.reset()
+                    
+                    pipeline.register_playback_client(session_id, audio_queue)
+                    
+                    await pipeline.submit_transcript(session_id, text)
+                    logger.log("transcript_submitted", session_id, "system", detail={"text_len": len(text)})
+                except Exception as e:
+                    logger.log_error("transcript_submit_failed", session_id, "system", e)
+                    await websocket.send_json({"type": "error", "detail": f"Failed to process transcript: {str(e)}"})
+                    
+            elif data.get("type") == "cancel":
                 if session_id:
-                    await pipeline.submit_cancel(session_id, "user_cancel")
-                    await pipeline.submit_interrupt(session_id, "stop_button")
-                    while not audio_queue.empty():
-                        try:
-                            audio_queue.get_nowait()
-                            audio_queue.task_done()
-                        except asyncio.QueueEmpty:
-                            break
-                    await websocket.send_json({"type": "stop_audio"})
+                    try:
+                        await pipeline.submit_cancel(session_id, "user_cancel")
+                        await pipeline.submit_interrupt(session_id, "stop_button")
+                        while not audio_queue.empty():
+                            try:
+                                audio_queue.get_nowait()
+                                audio_queue.task_done()
+                            except asyncio.QueueEmpty:
+                                break
+                        await websocket.send_json({"type": "stop_audio"})
+                        logger.log("cancel_handled", session_id, "system", detail={"reason": "user_cancel"})
+                    except Exception as e:
+                        logger.log_error("cancel_failed", session_id, "system", e)
+                        
     except WebSocketDisconnect:
         logger.log("ws_disconnected", session_id or "?", "system", detail={})
     except Exception as e:
-        logger.log("ws_error", session_id or "?", "system",
-                   detail={"error": str(e), "traceback": traceback.format_exc()})
+        logger.log_error("ws_error", session_id or "?", "system", e)
     finally:
         if session_id:
-            from services.orchestrator.cancellation_manager import cancellation_manager
-            cancellation_manager.reset_session(session_id)
-            token = get_cancel_token(session_id)
-            token.reset()
-            if pipeline:
-                pipeline.unregister_playback_client(session_id)
+            try:
+                from services.orchestrator.cancellation_manager import cancellation_manager
+                cancellation_manager.reset_session(session_id)
+                token = get_cancel_token(session_id)
+                token.reset()
+                if pipeline:
+                    pipeline.unregister_playback_client(session_id)
+            except Exception as e:
+                logger.log_error("ws_cleanup_failed", session_id, "system", e)
         for task in active_tasks:
             task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+            except Exception as e:
+                logger.log_error("task_cancel_failed", session_id or "?", "system", e)
 
 @app.websocket("/ws/telemetry")
 async def websocket_telemetry(websocket: WebSocket):
@@ -774,7 +814,64 @@ async def health():
         "redis": redis_info,
     }
 
+_telemetry_task = None
+
+async def telemetry_background_loop():
+    while True:
+        try:
+            await asyncio.sleep(2.0)
+            # Calculate resources
+            resources = await asyncio.to_thread(get_resource_usage)
+            telemetry_bus.push("resource_usage", resources, "system", "system")
+            
+            # Check services health
+            services = await get_services_health_async()
+            # Push Redis status specifically
+            telemetry_bus.push("redis_status", {"status": services["redis"]}, "system", "system")
+            # Push other services status
+            telemetry_bus.push("services_status", services, "system", "system")
+            
+            # Push worker status
+            pipeline = get_pipeline()
+            worker_states = {}
+            if pipeline:
+                for stage in [pipeline.stt, pipeline.llm, pipeline.tts, pipeline.playback,
+                              pipeline.fsm, pipeline.interrupt, pipeline.canceller, pipeline.metrics]:
+                    task_active = pipeline._started and stage._task is not None and not stage._task.done()
+                    worker_states[stage.name] = "active" if task_active else "inactive"
+                    # Track queue length for queue_update
+                    if hasattr(stage, "input") and isinstance(stage.input, asyncio.Queue):
+                        q_len = stage.input.qsize()
+                        if q_len > 0:
+                            telemetry_bus.push("queue_update", {"length": q_len, "stage": stage.name}, "system", "system")
+            telemetry_bus.push("worker_status", worker_states, "system", "system")
+            
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            logger.log_error("telemetry_background_loop_error", "system", "system", e)
+
+@app.on_event("startup")
+async def startup_event():
+    global _telemetry_task
+    _telemetry_task = asyncio.create_task(telemetry_background_loop())
+    logger.log("api_gateway_started", "system", "system", detail={})
+
 if __name__ == "__main__":
     import uvicorn
     port = vc_get("ports.api_gateway", 8003)
     uvicorn.run(app, host="0.0.0.0", port=port)
+
+# Application lifecycle events
+@app.on_event("shutdown")
+async def shutdown_event():
+    global _telemetry_task
+    if _telemetry_task:
+        _telemetry_task.cancel()
+        try:
+            await _telemetry_task
+        except asyncio.CancelledError:
+            pass
+    logger.log_service_stop("api-gateway", detail={"reason": "application_shutdown"})
+    from services.orchestrator.async_pipeline import shutdown_pipeline
+    await shutdown_pipeline()

@@ -13,6 +13,7 @@ class VoiceAgentFSM:
         self.turn_start_time = 0.0
         self.last_llm_latency = 0
         self.last_tts_latency = 0
+        self.last_total_latency = 0  # FIX: initialize to avoid AttributeError before first turn
         try:
             import os
             self.confidence_threshold = float(os.environ.get("INTERRUPTION_CONFIDENCE_THRESHOLD", "0.6"))
@@ -44,6 +45,8 @@ class VoiceAgentFSM:
         """Main turn-processing loop triggered by STT transcripts."""
         self.turn_id += 1
         self.turn_start_time = time.time()
+        print(f"\n[FSM] === TURN {self.turn_id} START | session={self.session_id} | state={self.state} ===")
+        print(f"[FSM] Transcript received: {transcript!r}")
         
         # Check if we were actively interrupted (state is interrupted or speaking)
         is_interrupted_turn = self.state in {"interrupted", "speaking"}
@@ -128,9 +131,11 @@ class VoiceAgentFSM:
         save_turn(self.session_id, str(self.turn_id), "user", transcript)
         
         # 3. Call LLM with the complete history list
+        print(f"[FSM] Calling LLM for turn {self.turn_id} with {len(history)} messages...")
         start_llm = time.time()
         reply_text = call_primary(self.session_id, str(self.turn_id), history)
         self.last_llm_latency = int((time.time() - start_llm) * 1000)
+        print(f"[FSM] LLM reply ({self.last_llm_latency}ms): {reply_text!r}")
         
         if cancellation_manager.is_cancelled(self.session_id):
             return None, None
@@ -142,9 +147,11 @@ class VoiceAgentFSM:
         self.transition("speaking")
         
         # Invoke TTS (Cartesia)
+        print(f"[FSM] Calling TTS for turn {self.turn_id}: {reply_text!r}")
         start_tts = time.time()
         audio_bytes = tts_speak(self.session_id, str(self.turn_id), reply_text)
         self.last_tts_latency = int((time.time() - start_tts) * 1000)
+        print(f"[FSM] TTS complete ({self.last_tts_latency}ms): {len(audio_bytes) if audio_bytes else 0} bytes")
         
         if cancellation_manager.is_cancelled(self.session_id):
             return None, None
