@@ -7,26 +7,144 @@ logger = get_logger("state-store")
 # In-memory database fallback for testing/offline mode
 _memory_db = {}
 
+# Singleton Redis client
+_redis_client = None
+_redis_logged_error = False
+
+
 def get_redis_client():
-    """Build and verify a connection to Redis if configured and enabled."""
+    """Build and verify a connection to Redis if configured and enabled.
+    
+    Returns a singleton Redis client with proper production settings:
+    - Connection pooling
+    - Socket timeouts
+    - Retry on timeout
+    - Health check interval
+    - TLS support for rediss:// URLs
+    """
+    global _redis_client, _redis_logged_error
+    
+    if _redis_client is not None:
+        return _redis_client
+    
     settings = get_settings()
+    
     # In test mode or when redis_url is empty/placeholder, bypass Redis
     if settings.env == "test" or not settings.redis_url or settings.redis_url == "dummy_val":
-        return None
-    try:
-        import redis
-        client = redis.from_url(settings.redis_url, decode_responses=True)
-        # Verify connection viability
-        client.ping()
-        return client
-    except Exception as e:
         logger.log(
-            event_name="state_store_connection_failed",
+            event_name="state_store_bypass",
             session_id="system",
             turn_id="system",
-            detail={"error": str(e), "msg": "Redis connection failed. Falling back to memory-store."}
+            detail={"msg": "Redis bypassed (test mode or no URL)"}
         )
         return None
+    
+    try:
+        import redis
+        
+        # Parse URL to determine if TLS is needed
+        redis_url = settings.redis_url.strip().strip("'\"")
+        if redis_url and not any(redis_url.startswith(s) for s in ["redis://", "rediss://", "unix://"]):
+            redis_url = "redis://" + redis_url
+        use_ssl = redis_url.startswith("rediss://")
+        
+        # Create client with production-grade settings
+        # redis.from_url handles SSL automatically for rediss:// URLs
+        client = redis.from_url(
+            redis_url,
+            decode_responses=True,
+            # Connection pooling
+            max_connections=20,
+            # Timeouts
+            socket_timeout=5.0,
+            socket_connect_timeout=5.0,
+            # Retry
+            retry_on_timeout=True,
+            # Health checks
+            health_check_interval=30,
+        )
+        
+        # Verify connection viability
+        client.ping()
+        
+        _redis_client = client
+        
+        logger.log(
+            event_name="state_store_connected",
+            session_id="system",
+            turn_id="system",
+            detail={
+                "host": client.connection_pool.connection_kwargs.get("host"),
+                "port": client.connection_pool.connection_kwargs.get("port"),
+                "tls": use_ssl,
+                "pool_size": 20,
+            }
+        )
+        return client
+        
+    except redis.AuthenticationError as e:
+        if not _redis_logged_error:
+            _redis_logged_error = True
+            logger.log(
+                event_name="state_store_connection_failed",
+                session_id="system",
+                turn_id="system",
+                detail={"error": str(e), "msg": "Redis authentication failed. Check password."}
+            )
+        return None
+    except redis.ConnectionError as e:
+        if not _redis_logged_error:
+            _redis_logged_error = True
+            logger.log(
+                event_name="state_store_connection_failed",
+                session_id="system",
+                turn_id="system",
+                detail={"error": str(e), "msg": "Redis connection failed (timeout/refused)."}
+            )
+        return None
+    except redis.InvalidResponse as e:
+        if not _redis_logged_error:
+            _redis_logged_error = True
+            logger.log(
+                event_name="state_store_connection_failed",
+                session_id="system",
+                turn_id="system",
+                detail={"error": str(e), "msg": "Redis protocol error (wrong port/TLS?)."}
+            )
+        return None
+    except Exception as e:
+        if not _redis_logged_error:
+            _redis_logged_error = True
+            logger.log(
+                event_name="state_store_connection_failed",
+                session_id="system",
+                turn_id="system",
+                detail={"error": str(e), "msg": "Redis connection failed. Falling back to memory-store."}
+            )
+        return None
+
+
+def close_redis_client():
+    """Close the Redis connection pool on shutdown."""
+    global _redis_client
+    if _redis_client is not None:
+        try:
+            _redis_client.close()
+            logger.log(
+                event_name="state_store_closed",
+                session_id="system",
+                turn_id="system",
+                detail={"msg": "Redis connection pool closed"}
+            )
+        except Exception as e:
+            logger.log(
+                event_name="state_store_close_failed",
+                session_id="system",
+                turn_id="system",
+                detail={"error": str(e)}
+            )
+        _redis_client = None
+
 
 def save_turn(session_id: str, turn_id: str, role: str, content: str):
     """Write an individual user or assistant speech turn to the session's history."""
@@ -63,6 +181,7 @@ def save_turn(session_id: str, turn_id: str, role: str, content: str):
         detail={"role": role, "content_preview": content[:30], "backend": "memory"}
     )
 
+
 def load_history(session_id: str) -> list[dict]:
     """Retrieve the complete list of turns (messages) for the active session."""
     client = get_redis_client()
@@ -83,6 +202,7 @@ def load_history(session_id: str) -> list[dict]:
     # In-memory database fallback (return a deepcopy to simulate new objects like Redis JSON load)
     import copy
     return copy.deepcopy(_memory_db.get(session_id, []))
+
 
 def clear_session(session_id: str):
     """Clean up and delete all records associated with a session."""

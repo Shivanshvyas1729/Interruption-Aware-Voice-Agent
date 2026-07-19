@@ -13,15 +13,15 @@ os.environ["ACTIVE_PHASE"] = "2"
 os.environ["SECRETS_BACKEND"] = "local"
 
 def test_conversation_state_persists_across_turns_and_restart():
+    from common.config.voice_settings import get as vc_get
     session_id = "session-test-phase2"
     
-    # 1. Reset state store and clean session history from previous run
     clear_session(session_id)
     if session_id in _fsms:
         del _fsms[session_id]
         
-    # 2. Start Orchestrator server
-    orch_server = make_orch_server(8020)
+    orch_port = vc_get("ports.test_single_orchestrator", 8020)
+    orch_server = make_orch_server(orch_port)
     t = threading.Thread(target=orch_server.run, daemon=True)
     t.start()
     

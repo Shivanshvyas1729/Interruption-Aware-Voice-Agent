@@ -1,0 +1,41 @@
+confidence_thresholds:
+  stt_min: 0.5
+  intent_min: 0.6
+
+timing:
+  min_speech_duration_ms: 200
+  max_backchannel_duration_ms: 800
+  cancellation_timeout_ms: 100
+  vad_sensitivity: 0.5
+
+categories:
+  backchannel:
+    - "yeah"
+    - "uh-huh"
+    - "mm-hmm"
+    - "okay"
+    - "right"
+    - "got it"
+    - "i see"
+  stop_cancel:
+    - "stop"
+    - "cancel"
+    - "never mind"
+    - "be quiet"
+    - "enough"
+  correction:
+    - "actually"
+    - "i meant"
+    - "sorry"
+    - "wait"
+    - "hold on"
+    - "no"
+  topic_change:
+    - "by the way"
+    - "new question"
+    - "another question"
+    - "change topic"
+  clarification:
+    - "what"
+    - "repeat that"
+    - "can you explain"

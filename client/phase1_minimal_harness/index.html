@@ -1,54 +1,645 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
   <head>
-    <title>Pivot — Phase 1 Test Harness</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pivot — Interruption-Aware Voice Agent</title>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&family=Space+Grotesk:wght@400;600&display=swap" rel="stylesheet">
+    
     <style>
+      :root {
+        --bg-color: #080c14;
+        --card-bg: rgba(17, 25, 40, 0.75);
+        --card-border: rgba(255, 255, 255, 0.08);
+        --text-primary: #f3f4f6;
+        --text-secondary: #9ca3af;
+        
+        --color-idle: #3b82f6;       /* Blue */
+        --color-connecting: #f59e0b; /* Amber */
+        --color-active: #10b981;     /* Emerald */
+        --color-thinking: #a855f7;   /* Purple */
+        --color-speaking: #ec4899;   /* Pink */
+        --color-interrupted: #ef4444;/* Ruby Red */
+      }
+
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
       body {
-        font-family: Arial, sans-serif;
-        max-width: 600px;
-        margin: 40px auto;
-        padding: 0 20px;
+        font-family: 'Outfit', sans-serif;
+        background-color: var(--bg-color);
+        background-image: 
+          radial-gradient(at 0% 0%, rgba(59, 130, 246, 0.1) 0px, transparent 50%),
+          radial-gradient(at 100% 100%, rgba(168, 85, 247, 0.1) 0px, transparent 50%);
+        color: var(--text-primary);
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        padding: 20px;
+        overflow-x: hidden;
       }
-      #log-panel {
-        background-color: #f4f4f4;
-        border: 1px solid #ccc;
-        padding: 10px;
-        height: 250px;
-        overflow-y: scroll;
-        font-family: monospace;
+
+      .container {
+        width: 100%;
+        max-width: 900px;
+        background: var(--card-bg);
+        backdrop-filter: blur(16px);
+        -webkit-backdrop-filter: blur(16px);
+        border: 1px solid var(--card-border);
+        border-radius: 24px;
+        padding: 40px;
+        box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5);
+        display: flex;
+        flex-direction: column;
+        gap: 30px;
       }
-      .log-entry {
-        margin-bottom: 5px;
-        border-bottom: 1px solid #eee;
-        padding-bottom: 5px;
+
+      .header {
+        text-align: center;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
       }
-      button {
-        padding: 10px 20px;
-        font-size: 16px;
+
+      h1 {
+        font-family: 'Space Grotesk', sans-serif;
+        font-size: 2.5rem;
+        font-weight: 800;
+        background: linear-gradient(135deg, #60a5fa, #c084fc);
+        -webkit-background-clip: text;
+        background-clip: text;
+        -webkit-text-fill-color: transparent;
+        letter-spacing: -0.03em;
+      }
+
+      .subtitle {
+        color: var(--text-secondary);
+        font-size: 1.1rem;
+        font-weight: 300;
+      }
+
+      /* Control Box */
+      .control-box {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 20px;
+        padding: 24px;
+        background: rgba(255, 255, 255, 0.02);
+        border-radius: 16px;
+        border: 1px solid rgba(255, 255, 255, 0.04);
+      }
+
+      .btn {
+        font-family: 'Outfit', sans-serif;
+        font-weight: 600;
+        font-size: 1.1rem;
+        padding: 16px 40px;
+        border: none;
+        border-radius: 50px;
+        color: #fff;
+        background: linear-gradient(135deg, #3b82f6, #8b5cf6);
         cursor: pointer;
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        box-shadow: 0 8px 24px rgba(59, 130, 246, 0.3);
+        display: flex;
+        align-items: center;
+        gap: 10px;
       }
-      #status {
+
+      .btn:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 12px 30px rgba(59, 130, 246, 0.5);
+      }
+
+      .btn:active {
+        transform: translateY(1px);
+      }
+
+      .btn.connected {
+        background: linear-gradient(135deg, #10b981, #059669);
+        box-shadow: 0 8px 24px rgba(16, 185, 129, 0.3);
+      }
+
+      /* Status Badge */
+      .status-container {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+
+      .status-badge {
+        font-size: 1rem;
+        font-weight: 600;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+        color: var(--color-idle);
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        transition: color 0.3s ease;
+      }
+
+      .status-dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        background-color: var(--color-idle);
+        box-shadow: 0 0 12px var(--color-idle);
+        animation: pulse 2s infinite;
+        transition: background-color 0.3s ease, box-shadow 0.3s ease;
+      }
+
+      /* Sound Wave Animation */
+      .wave-container {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        height: 60px;
         margin: 10px 0;
-        font-weight: bold;
+      }
+
+      .wave-bar {
+        width: 4px;
+        height: 10px;
+        background-color: var(--color-idle);
+        border-radius: 4px;
+        transition: all 0.3s ease;
+      }
+
+      .animating .wave-bar {
+        animation: wave 1.2s ease-in-out infinite alternate;
+      }
+
+      .animating .wave-bar:nth-child(1) { animation-delay: 0.1s; height: 35px; }
+      .animating .wave-bar:nth-child(2) { animation-delay: 0.3s; height: 50px; }
+      .animating .wave-bar:nth-child(3) { animation-delay: 0.6s; height: 25px; }
+      .animating .wave-bar:nth-child(4) { animation-delay: 0.2s; height: 55px; }
+      .animating .wave-bar:nth-child(5) { animation-delay: 0.5s; height: 30px; }
+      .animating .wave-bar:nth-child(6) { animation-delay: 0.4s; height: 45px; }
+      .animating .wave-bar:nth-child(7) { animation-delay: 0.7s; height: 20px; }
+
+      /* Conversation Displays (STT & LLM) */
+      .transcript-box {
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+        padding: 24px;
+        background: rgba(255, 255, 255, 0.02);
+        border: 1px solid rgba(255, 255, 255, 0.04);
+        border-radius: 16px;
+      }
+
+      .transcript-item {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+
+      .transcript-label {
+        font-size: 0.8rem;
+        font-weight: 600;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+        color: var(--text-secondary);
+      }
+
+      .transcript-label.user {
+        color: #60a5fa;
+      }
+
+      .transcript-label.agent {
+        color: #a855f7;
+      }
+
+      .transcript-text {
+        font-size: 1.1rem;
+        line-height: 1.5;
+        color: var(--text-primary);
+        background: rgba(0, 0, 0, 0.2);
+        padding: 14px 20px;
+        border-radius: 12px;
+        border: 1px solid rgba(255, 255, 255, 0.03);
+        min-height: 54px;
+      }
+
+      /* Telemetry Log panel */
+      .log-section {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+
+      .log-title {
+        font-family: 'Space Grotesk', sans-serif;
+        font-size: 1.2rem;
+        font-weight: 600;
+        color: var(--text-primary);
+      }
+
+      #log-panel {
+        background-color: rgba(0, 0, 0, 0.3);
+        border: 1px solid rgba(255, 255, 255, 0.05);
+        border-radius: 16px;
+        padding: 20px;
+        height: 250px;
+        overflow-y: auto;
+        font-family: 'Space Grotesk', monospace;
+        font-size: 0.95rem;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        scroll-behavior: smooth;
+      }
+
+      .log-entry {
+        line-height: 1.5;
+        color: var(--text-secondary);
+        display: flex;
+        align-items: flex-start;
+        gap: 10px;
+      }
+
+      .log-time {
+        color: rgba(255, 255, 255, 0.25);
+        font-size: 0.85rem;
+        min-width: 75px;
+      }
+
+      .log-badge {
+        padding: 2px 8px;
+        border-radius: 4px;
+        font-size: 0.75rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        background-color: rgba(255, 255, 255, 0.08);
+        color: var(--text-primary);
+      }
+
+      .log-badge.error { background-color: rgba(239, 68, 68, 0.2); color: #fca5a5; }
+      .log-badge.system { background-color: rgba(59, 130, 246, 0.2); color: #93c5fd; }
+      .log-badge.stt_final { background-color: rgba(16, 185, 129, 0.2); color: #6ee7b7; }
+      .log-badge.llm_response { background-color: rgba(168, 85, 247, 0.2); color: #d8b4fe; }
+      .log-badge.tts_stopped { background-color: rgba(239, 68, 68, 0.2); color: #fca5a5; }
+
+      .log-text {
+        flex: 1;
+      }
+
+      /* Custom Scrollbars */
+      #log-panel::-webkit-scrollbar {
+        width: 6px;
+      }
+      #log-panel::-webkit-scrollbar-track {
+        background: transparent;
+      }
+      #log-panel::-webkit-scrollbar-thumb {
+        background: rgba(255, 255, 255, 0.1);
+        border-radius: 4px;
+      }
+      #log-panel::-webkit-scrollbar-thumb:hover {
+        background: rgba(255, 255, 255, 0.2);
+      }
+
+      /* Animations */
+      @keyframes pulse {
+        0%, 100% { transform: scale(1); opacity: 1; }
+        50% { transform: scale(1.2); opacity: 0.5; }
+      }
+
+      @keyframes wave {
+        0% { transform: scaleY(0.3); }
+        100% { transform: scaleY(1); }
       }
     </style>
-    <!-- LiveKit Client SDK CDN -->
-    <script src="https://cdn.jsdelivr.net/npm/livekit-client/dist/livekit-client.umd.min.js"></script>
+    <!-- LiveKit Client SDK -->
+    <script src="livekit-client.umd.min.js"></script>
   </head>
   <body>
-    <h1>🎙️ Pivot — Phase 1 Test Harness</h1>
-    <p>A minimal page to test the single-turn voice agent loop.</p>
-    
-    <button id="join-btn">Join Session</button>
-    <div id="status">Disconnected</div>
-    
-    <h3>Server Telemetry Log</h3>
-    <div id="log-panel">
-      <div class="log-entry">[System] Log panel initialized. Ready to join...</div>
+    <div class="container">
+      <div class="header">
+        <h1>🎙️ Pivot Voice Agent</h1>
+        <div class="subtitle">Interruption-Aware WebRTC Voice Client</div>
+      </div>
+      
+      <!-- Control Box -->
+      <div class="control-box">
+        <div class="status-container">
+          <div class="status-dot" id="status-dot"></div>
+          <div class="status-badge" id="status-badge">Disconnected</div>
+          <div style="font-size: 0.8rem; color: #a3a3a3; margin-left: 12px; font-weight: 500;" id="streaming-badge">Pipeline: REST</div>
+        </div>
+
+        <div class="wave-container" id="wave-container">
+          <div class="wave-bar"></div>
+          <div class="wave-bar"></div>
+          <div class="wave-bar"></div>
+          <div class="wave-bar"></div>
+          <div class="wave-bar"></div>
+          <div class="wave-bar"></div>
+          <div class="wave-bar"></div>
+        </div>
+
+        <button class="btn" id="join-btn">
+          <span>Join Session</span>
+        </button>
+      </div>
+
+      <!-- Toggle Performance Dashboard -->
+      <div style="display: flex; justify-content: center; margin-top: 10px;">
+        <button class="btn" id="toggle-dashboard-btn" style="background: rgba(255,255,255,0.06); box-shadow: none; font-size: 0.95rem; padding: 10px 24px; border: 1px solid rgba(255,255,255,0.08);">
+          📊 Toggle Performance Dashboard
+        </button>
+      </div>
+
+      <!-- Developer Metrics Panel -->
+      <div id="metrics-panel" style="display: none; flex-direction: column; gap: 24px; background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.04); border-radius: 16px; padding: 24px;">
+        
+        <!-- Tab: Interactive Service Control Panel -->
+        <div style="background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.04); border-radius: 12px; padding: 16px;">
+          <h3 style="font-size: 1rem; margin-bottom: 12px; font-family: 'Space Grotesk', sans-serif; color: #60a5fa;">🕹️ Service Control Panel</h3>
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px;">
+            <button class="btn" id="ctrl-mute-btn" style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.2); font-size: 0.85rem; padding: 8px 12px; box-shadow: none;">🎙️ Mute Mic</button>
+            <button class="btn" id="ctrl-unmute-btn" style="background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.2); font-size: 0.85rem; padding: 8px 12px; box-shadow: none; display: none;">🎙️ Unmute Mic</button>
+            <button class="btn" id="ctrl-stt-toggle-btn" style="background: rgba(245, 158, 11, 0.15); border: 1px solid rgba(245, 158, 11, 0.3); font-size: 0.85rem; padding: 8px 12px; box-shadow: none; color: #fbbf24;">⏹️ Stop STT</button>
+            <button class="btn" id="ctrl-stt-start-btn" style="background: rgba(16, 185, 129, 0.15); border: 1px solid rgba(16, 185, 129, 0.3); font-size: 0.85rem; padding: 8px 12px; box-shadow: none; color: #34d399; display: none;">▶️ Start STT</button>
+            <button class="btn" id="ctrl-cancel-btn" style="background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.2); font-size: 0.85rem; padding: 8px 12px; box-shadow: none;">🛑 Cancel Response</button>
+            <button class="btn" id="ctrl-reset-btn" style="background: rgba(168, 85, 247, 0.1); border: 1px solid rgba(168, 85, 247, 0.2); font-size: 0.85rem; padding: 8px 12px; box-shadow: none;">🔄 Reset Session</button>
+            <button class="btn" id="ctrl-reconnect-btn" style="background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.2); font-size: 0.85rem; padding: 8px 12px; box-shadow: none;">🔌 Reconnect Room</button>
+            <button class="btn" id="ctrl-shutdown-btn" style="background: rgba(239, 68, 68, 0.2); border: 1px solid rgba(239, 68, 68, 0.3); font-size: 0.85rem; padding: 8px 12px; box-shadow: none; color: #fca5a5;">⚠️ Shutdown</button>
+          </div>
+        </div>
+
+        <!-- Row 1: System Services Health Status & Auto-Diagnostics -->
+        <div style="display: grid; grid-template-columns: 1fr 1.2fr; gap: 20px;">
+          <!-- Service Health -->
+          <div style="background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.04); border-radius: 12px; padding: 16px;">
+            <h3 style="font-size: 1rem; margin-bottom: 12px; font-family: 'Space Grotesk', sans-serif;">🟢 Service Health Status</h3>
+            <div style="display: grid; grid-template-columns: 1fr; gap: 8px; font-size: 0.9rem;">
+              <div style="display: flex; align-items: center; justify-content: space-between;">
+                <span>API Gateway:</span>
+                <div style="display: flex; align-items: center; gap: 6px;">
+                  <span id="health-api-status" style="font-weight: 600; font-size: 0.8rem; letter-spacing: 0.05em;">HEALTHY</span>
+                  <div id="health-api-dot" style="width: 8px; height: 8px; border-radius: 50%; background: #10b981; box-shadow: 0 0 8px #10b981;"></div>
+                </div>
+              </div>
+              <div style="display: flex; align-items: center; justify-content: space-between;">
+                <span>Redis DB State:</span>
+                <div style="display: flex; align-items: center; gap: 6px;">
+                  <span id="health-redis-status" style="font-weight: 600; font-size: 0.8rem; letter-spacing: 0.05em; color: #9ca3af;">CHECKING...</span>
+                  <div id="health-redis-dot" style="width: 8px; height: 8px; border-radius: 50%; background: #9ca3af;"></div>
+                </div>
+              </div>
+              <div style="display: flex; align-items: center; justify-content: space-between;">
+                <span>Orchestrator:</span>
+                <div style="display: flex; align-items: center; gap: 6px;">
+                  <span id="health-orch-status" style="font-weight: 600; font-size: 0.8rem; letter-spacing: 0.05em; color: #9ca3af;">CHECKING...</span>
+                  <div id="health-orch-dot" style="width: 8px; height: 8px; border-radius: 50%; background: #9ca3af;"></div>
+                </div>
+              </div>
+              <div style="display: flex; align-items: center; justify-content: space-between;">
+                <span>Media Gateway:</span>
+                <div style="display: flex; align-items: center; gap: 6px;">
+                  <span id="health-media-status" style="font-weight: 600; font-size: 0.8rem; letter-spacing: 0.05em; color: #9ca3af;">CHECKING...</span>
+                  <div id="health-media-dot" style="width: 8px; height: 8px; border-radius: 50%; background: #9ca3af;"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          <!-- Auto-Diagnostics & Bottlenecks -->
+          <div style="background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.04); border-radius: 12px; padding: 16px;">
+            <h3 style="font-size: 1rem; margin-bottom: 12px; font-family: 'Space Grotesk', sans-serif;">⚡ Real-time Bottleneck Analysis</h3>
+            <div id="bottleneck-info" style="font-size: 0.9rem; color: #9ca3af; line-height: 1.5; font-family: 'Space Grotesk', monospace;">
+              No conversation data analyzed yet. Talk to the agent to start latency profiling!
+            </div>
+          </div>
+        </div>
+
+        <!-- Tab: Conversation Latency Waterfall -->
+        <div style="background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.04); border-radius: 12px; padding: 16px;">
+          <h3 style="font-size: 1rem; margin-bottom: 12px; font-family: 'Space Grotesk', sans-serif; color: #a855f7;">🌊 Latency Waterfall — Live</h3>
+          <div style="display: flex; flex-direction: column; gap: 8px; font-size: 0.85rem; font-family: monospace;">
+            <div style="display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.03); padding-bottom: 4px;">
+              <span>🟦 1. VAD Start / Speech Detected:</span>
+              <span id="wf-vad-start" style="color: #60a5fa;">-</span>
+            </div>
+            <div style="display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.03); padding-bottom: 4px;">
+              <span>🟩 2. STT Final Transcript:</span>
+              <span id="wf-stt-complete" style="color: #10b981;">-</span>
+            </div>
+            <div style="display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.03); padding-bottom: 4px;">
+              <span>🟪 3. LLM First Token (TTFB):</span>
+              <span id="wf-llm-first-token" style="color: #a855f7;">-</span>
+            </div>
+            <div style="display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.03); padding-bottom: 4px;">
+              <span>🩷 4. LLM Response Complete:</span>
+              <span id="wf-llm-complete" style="color: #ec4899;">-</span>
+            </div>
+            <div style="display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.03); padding-bottom: 4px;">
+              <span>🟠 5. TTS First Audio:</span>
+              <span id="wf-tts-first-audio" style="color: #f59e0b;">-</span>
+            </div>
+            <div style="display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.03); padding-bottom: 4px;">
+              <span>🟢 6. Playback Started:</span>
+              <span id="wf-playback-start" style="color: #10b981;">-</span>
+            </div>
+            <div style="display: flex; align-items: center; justify-content: space-between;">
+              <span>🔴 7. Playback Ended / Turn Complete:</span>
+              <span id="wf-playback-end" style="color: #ef4444;">-</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Live Pipeline Status Bar -->
+        <div id="live-pipeline-bar" style="background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.04); border-radius: 12px; padding: 16px; display: flex; flex-direction: column; gap: 8px;">
+          <h3 style="font-size: 1rem; font-family: 'Space Grotesk', sans-serif; color: #10b981;">⚡ Live Pipeline Status</h3>
+          <div style="display: flex; flex-wrap: wrap; gap: 8px; font-size: 0.8rem; font-family: monospace;">
+            <div id="pipeline-vad" style="padding: 4px 10px; background: rgba(255,255,255,0.03); border-radius: 6px; color: #9ca3af;">⏳ VAD</div>
+            <div id="pipeline-stt" style="padding: 4px 10px; background: rgba(255,255,255,0.03); border-radius: 6px; color: #9ca3af;">⏳ STT</div>
+            <div id="pipeline-llm" style="padding: 4px 10px; background: rgba(255,255,255,0.03); border-radius: 6px; color: #9ca3af;">⏳ LLM</div>
+            <div id="pipeline-tts" style="padding: 4px 10px; background: rgba(255,255,255,0.03); border-radius: 6px; color: #9ca3af;">⏳ TTS</div>
+            <div id="pipeline-playback" style="padding: 4px 10px; background: rgba(255,255,255,0.03); border-radius: 6px; color: #9ca3af;">⏳ Playback</div>
+          </div>
+          <div style="display: flex; gap: 20px; font-size: 0.8rem; font-family: monospace; margin-top: 4px;">
+            <span>Tokens/sec: <span id="live-tokens-sec" style="color: #f59e0b;">-</span></span>
+            <span>Queue Length: <span id="live-queue-length" style="color: #60a5fa;">0</span></span>
+            <span>CPU: <span id="live-cpu" style="color: #10b981;">-</span></span>
+            <span>Memory: <span id="live-memory" style="color: #10b981;">-</span> MB</span>
+            <span>Network RTT: <span id="live-network-rtt" style="color: #10b981;">-</span></span>
+          </div>
+        </div>
+
+        <!-- Real-time Telemetry Event Feed -->
+        <div style="background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.04); border-radius: 12px; padding: 16px; max-height: 180px; overflow-y: auto;" id="telemetry-feed-container">
+          <h3 style="font-size: 1rem; margin-bottom: 8px; font-family: 'Space Grotesk', sans-serif; color: #60a5fa;">📡 Real-Time Telemetry Feed</h3>
+          <div id="telemetry-feed" style="font-size: 0.75rem; font-family: monospace; display: flex; flex-direction: column; gap: 3px;"></div>
+        </div>
+
+        <!-- Row 2: Latency Pipeline Statistics Table -->
+        <div style="overflow-x: auto; background: rgba(255,255,255,0.01); border: 1px solid rgba(255,255,255,0.03); border-radius: 12px; padding: 16px;">
+          <table style="width: 100%; border-collapse: collapse; font-size: 0.9rem; text-align: left;">
+            <thead>
+              <tr style="border-bottom: 1px solid rgba(255,255,255,0.1); color: var(--text-secondary);">
+                <th style="padding: 10px;">Pipeline Stage</th>
+                <th style="padding: 10px;">Current</th>
+                <th style="padding: 10px;">Average</th>
+                <th style="padding: 10px;">Min / Max</th>
+                <th style="padding: 10px;">P95 / P99</th>
+                <th style="padding: 10px;">Target</th>
+                <th style="padding: 10px;">Status</th>
+              </tr>
+            </thead>
+            <tbody id="metrics-table-body">
+              <tr style="border-bottom: 1px solid rgba(255,255,255,0.04);" id="metric-row-stt">
+                <th style="padding: 10px; font-weight: normal;">Speech-to-Text (STT)</th>
+                <td style="padding: 10px;" class="val-curr">-</td>
+                <td style="padding: 10px;" class="val-avg">-</td>
+                <td style="padding: 10px;" class="val-minmax">-</td>
+                <td style="padding: 10px;" class="val-p95p99">-</td>
+                <td style="padding: 10px; color: var(--text-secondary);" class="target-stt">-</td>
+                <td style="padding: 10px;" class="val-status">-</td>
+              </tr>
+              <tr style="border-bottom: 1px solid rgba(255,255,255,0.04);" id="metric-row-llm">
+                <th style="padding: 10px; font-weight: normal;">LLM Reasoning (Groq)</th>
+                <td style="padding: 10px;" class="val-curr">-</td>
+                <td style="padding: 10px;" class="val-avg">-</td>
+                <td style="padding: 10px;" class="val-minmax">-</td>
+                <td style="padding: 10px;" class="val-p95p99">-</td>
+                <td style="padding: 10px; color: var(--text-secondary);" class="target-llm">-</td>
+                <td style="padding: 10px;" class="val-status">-</td>
+              </tr>
+              <tr style="border-bottom: 1px solid rgba(255,255,255,0.04);" id="metric-row-tts">
+                <th style="padding: 10px; font-weight: normal;">Text-to-Speech (TTS)</th>
+                <td style="padding: 10px;" class="val-curr">-</td>
+                <td style="padding: 10px;" class="val-avg">-</td>
+                <td style="padding: 10px;" class="val-minmax">-</td>
+                <td style="padding: 10px;" class="val-p95p99">-</td>
+                <td style="padding: 10px; color: var(--text-secondary);" class="target-tts">-</td>
+                <td style="padding: 10px;" class="val-status">-</td>
+              </tr>
+              <tr style="border-bottom: 1px solid rgba(255,255,255,0.04);" id="metric-row-network">
+                <th style="padding: 10px; font-weight: normal;">Network RTT & WebRTC</th>
+                <td style="padding: 10px;" class="val-curr">-</td>
+                <td style="padding: 10px;" class="val-avg">-</td>
+                <td style="padding: 10px;" class="val-minmax">-</td>
+                <td style="padding: 10px;" class="val-p95p99">-</td>
+                <td style="padding: 10px; color: var(--text-secondary);" class="target-network">-</td>
+                <td style="padding: 10px;" class="val-status">-</td>
+              </tr>
+              <tr style="border-bottom: 1px solid rgba(255,255,255,0.04);" id="metric-row-interruption">
+                <th style="padding: 10px; font-weight: normal;">Barge-In Interruption</th>
+                <td style="padding: 10px;" class="val-curr">-</td>
+                <td style="padding: 10px;" class="val-avg">-</td>
+                <td style="padding: 10px;" class="val-minmax">-</td>
+                <td style="padding: 10px;" class="val-p95p99">-</td>
+                <td style="padding: 10px; color: var(--text-secondary);" class="target-interruption">-</td>
+                <td style="padding: 10px;" class="val-status">-</td>
+              </tr>
+              <tr style="border-bottom: 1px solid rgba(255,255,255,0.04);" id="metric-row-total">
+                <th style="padding: 10px; font-weight: 600;">Total Pipeline Latency</th>
+                <td style="padding: 10px; font-weight: 600;" class="val-curr">-</td>
+                <td style="padding: 10px; font-weight: 600;" class="val-avg">-</td>
+                <td style="padding: 10px; font-weight: 600;" class="val-minmax">-</td>
+                <td style="padding: 10px; font-weight: 600;" class="val-p95p99">-</td>
+                <td style="padding: 10px; color: var(--text-secondary); font-weight: 600;" class="target-total">-</td>
+                <td style="padding: 10px;" class="val-status">-</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Row: Token & Billing Analytics Panel -->
+        <div style="background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.04); border-radius: 12px; padding: 16px;">
+          <h3 style="font-size: 1rem; margin-bottom: 12px; font-family: 'Space Grotesk', sans-serif; color: #10b981;">🪙 Token Usage & Billing</h3>
+          <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; font-size: 0.85rem; font-family: monospace;">
+            <div style="background: rgba(255,255,255,0.01); padding: 8px; border-radius: 6px;">
+              <div>Prompt Tokens:</div>
+              <div id="metrics-prompt-tokens" style="font-size: 1.1rem; font-weight: bold; margin-top: 4px; color: #60a5fa;">0</div>
+            </div>
+            <div style="background: rgba(255,255,255,0.01); padding: 8px; border-radius: 6px;">
+              <div>Completion Tokens:</div>
+              <div id="metrics-completion-tokens" style="font-size: 1.1rem; font-weight: bold; margin-top: 4px; color: #ec4899;">0</div>
+            </div>
+            <div style="background: rgba(255,255,255,0.01); padding: 8px; border-radius: 6px;">
+              <div>Generation Speed:</div>
+              <div id="metrics-tokens-sec" style="font-size: 1.1rem; font-weight: bold; margin-top: 4px; color: #f59e0b;">- t/s</div>
+            </div>
+            <div style="background: rgba(255,255,255,0.01); padding: 8px; border-radius: 6px;">
+              <div>Estimated Cost (USD):</div>
+              <div id="metrics-cost" style="font-size: 1.1rem; font-weight: bold; margin-top: 4px; color: #10b981;">$0.0000</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Row 3: WebRTC / Browser details -->
+        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; font-size: 0.85rem;">
+          <div style="background: rgba(255,255,255,0.02); border-radius: 12px; padding: 16px; border: 1px solid rgba(255,255,255,0.04);">
+            <div style="font-weight: 600; margin-bottom: 8px; color: #60a5fa; text-transform: uppercase; font-size: 0.75rem; letter-spacing: 0.05em;">🌐 WebRTC stats</div>
+            <div style="margin-bottom: 4px;">Jitter: <span id="webrtc-jitter" style="font-family: monospace;">-</span></div>
+            <div style="margin-bottom: 4px;">Packet Loss: <span id="webrtc-loss" style="font-family: monospace;">-</span></div>
+            <div style="margin-bottom: 4px;">Bitrate: <span id="webrtc-bitrate" style="font-family: monospace;">-</span></div>
+            <div style="margin-top: 8px;">
+              <div>Mic Level:</div>
+              <div style="width: 100%; height: 8px; background: rgba(255,255,255,0.06); border-radius: 4px; overflow: hidden; margin-top: 4px;">
+                <div id="mic-energy-bar" style="width: 0%; height: 100%; background: #60a5fa; transition: width 0.05s ease;"></div>
+              </div>
+            </div>
+          </div>
+          <div style="background: rgba(255,255,255,0.02); border-radius: 12px; padding: 16px; border: 1px solid rgba(255,255,255,0.04);">
+            <div style="font-weight: 600; margin-bottom: 8px; color: #a855f7; text-transform: uppercase; font-size: 0.75rem; letter-spacing: 0.05em;">⚡ Browser Performance</div>
+            <div style="margin-bottom: 4px;">Frame Rate: <span id="browser-fps" style="font-family: monospace;">-</span> FPS</div>
+            <div style="margin-bottom: 4px;">Event Loop Lag: <span id="browser-loop" style="font-family: monospace;">-</span> ms</div>
+            <div style="margin-bottom: 4px;">DOM Nodes: <span id="browser-dom" style="font-family: monospace;">-</span></div>
+            <div>JS Heap memory: <span id="browser-heap" style="font-family: monospace;">-</span> MB</div>
+          </div>
+          <div style="background: rgba(255,255,255,0.02); border-radius: 12px; padding: 16px; border: 1px solid rgba(255,255,255,0.04);">
+            <div style="font-weight: 600; margin-bottom: 8px; color: #10b981; text-transform: uppercase; font-size: 0.75rem; letter-spacing: 0.05em;">🖥️ Server Resources</div>
+            <div style="margin-bottom: 4px;">CPU Load: <span id="server-cpu" style="font-family: monospace;">-</span>%</div>
+            <div style="margin-bottom: 4px;">RAM Load: <span id="server-ram" style="font-family: monospace;">-</span> MB</div>
+            <div style="margin-bottom: 4px;">Active Threads: <span id="server-threads" style="font-family: monospace;">-</span></div>
+            <div style="margin-bottom: 4px;">Async Tasks: <span id="server-tasks" style="font-family: monospace;">-</span></div>
+            <div>Session ID: <span id="server-session" style="font-family: monospace;">-</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Spoken Transcript Output Panel -->
+      <div class="transcript-box">
+        <div class="transcript-item">
+          <span class="transcript-label user">You Said (STT Output)</span>
+          <div class="transcript-text" id="user-transcript">Listening for your speech...</div>
+        </div>
+        <div class="transcript-item">
+          <span class="transcript-label agent">Agent Replied (LLM Response)</span>
+          <div class="transcript-text" id="agent-response">Waiting for query...</div>
+        </div>
+      </div>
+
+      <!-- Log Section -->
+      <div class="log-section">
+        <div class="log-title">Server Telemetry Log</div>
+        <div id="log-panel">
+          <div class="log-entry">
+            <span class="log-time">System</span>
+            <span class="log-badge system">System</span>
+            <span class="log-text">Telemetry initialized. Tap Join Session to begin...</span>
+          </div>
+        </div>
+      </div>
     </div>
-    
+
     <audio id="agent-audio" autoplay></audio>
-    
     <script src="app.js"></script>
+    <script src="dashboard.js"></script>
   </body>
 </html>

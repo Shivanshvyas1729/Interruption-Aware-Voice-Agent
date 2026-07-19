@@ -1,0 +1,225 @@
+# =============================================================================
+# Voice Agent — Tunable Configuration
+# =============================================================================
+# All pipeline-level tunables live here.  Secrets stay in .env.
+# =============================================================================
+
+llm:
+  system_prompt: "You are a helpful, concise voice assistant."
+  max_tokens: 256
+  max_sentences: 3
+  max_response_seconds: 15
+  first_token_timeout_ms: 5000
+  mock_sleep_ms: 50
+
+tts:
+  model_id: "sonic-3.5"
+  voice_id: "4459a9a5-69d6-4680-b970-e13dc51845b6"
+  language: "en"
+  output_format:
+    container: "wav"
+    encoding: "pcm_s16le"
+    sample_rate: 24000
+  chunk_size: 1600
+  mock_sleep_ms: 50
+  mock_chunk_sleep_ms: 10
+  mock_chunk_silence_bytes: 16000
+  kill_timeout_s: 1
+
+stt:
+  model_id: "nova-3"
+  language: "en-US"
+  interim_results: false
+
+interruption:
+  vad_threshold: 0.5
+  vad_timeout_ms: 300
+  interrupt_timeout_ms: 100
+  min_speech_duration_ms: 200
+  max_backchannel_duration_ms: 800
+  confidence_thresholds:
+    stt_min: 0.5
+    intent_min: 0.6
+  weights:
+    w_t: 0.4
+    w_d: 0.2
+    w_conf: 0.2
+    w_overlap: 0.2
+
+categories:
+  backchannel:
+    - "yeah"
+    - "uh-huh"
+    - "mm-hmm"
+    - "okay"
+    - "right"
+    - "got it"
+    - "i see"
+  stop_words:
+    - "stop"
+    - "cancel"
+    - "never mind"
+    - "be quiet"
+    - "enough"
+  correction_words:
+    - "actually"
+    - "i meant"
+    - "sorry"
+    - "wait"
+    - "hold on"
+    - "no"
+  topic_change_words:
+    - "by the way"
+    - "new question"
+    - "another question"
+    - "change topic"
+  clarification:
+    - "what"
+    - "repeat that"
+    - "can you explain"
+
+audio:
+  speech_speed: 1.0
+  pause_duration_ms: 500
+  playback_buffer_ms: 200
+
+health:
+  check_timeout_s: 0.5
+  async_check_timeout_s: 0.3
+
+telemetry:
+  dashboard_refresh_rate_ms: 2000
+  ws_reconnect_delay_ms: 3000
+  max_history: 500
+  recent_events_limit: 50
+  feed_max_entries: 100
+  ws_history_snapshot: 100
+
+latency_thresholds:
+  stt: 250
+  llm: 800
+  tts: 250
+  network: 150
+  interruption: 100
+  total: 1200
+
+ports:
+  orchestrator: 8000
+  media_gateway: 8001
+  task_worker: 8002
+  api_gateway: 8003
+  web_server: 8080
+  livekit_fallback: 7800
+  test_orchestrator: 8030
+  test_media_gateway: 8031
+  test_api_gateway: 8013
+  test_single_orchestrator: 8010
+
+urls:
+  orchestrator_host: "127.0.0.1"
+  media_gateway_host: "127.0.0.1"
+
+mock:
+  llm_sleep_ms: 50
+  tts_sleep_ms: 50
+  stt_transcript: "What's the weather like on Mars?"
+  mock_stream_sentences:
+    - "Hello there!"
+    - "I am your streaming voice assistant."
+    - "How can I help you today?"
+
+context:
+  sliding_window:
+    max_turns: 10
+    max_messages: 20
+    enabled: true
+  summarization:
+    enabled: true
+    max_turns_before_summary: 8
+    summary_model: "llama-3.1-8b-instant"
+    summary_prompt: "Summarize the key points from this conversation segment concisely in 1-2 sentences."
+  deduplication:
+    enabled: true
+    exact_match: true
+    consecutive_match: true
+  compression:
+    enabled: true
+    strip_filler: true
+    max_message_length: 200
+  token_budget:
+    per_turn: 2048
+    per_session: 16384
+    warn_at: 0.8
+    hard_limit: true
+  estimation:
+    chars_per_token: 4
+    overhead_per_message: 3
+
+cost:
+  token_estimation_multiplier: 1.3
+  input_cost_per_million: 0.59
+  output_cost_per_million: 0.79
+
+ui:
+  analyser_fft_size: 256
+  mic_energy_interval_ms: 50
+  fps_calc_interval_ms: 1000
+  loop_lag_interval_ms: 50
+  dom_heap_interval_ms: 1000
+  webrtc_stats_interval_ms: 2000
+  browser_resource_interval_ms: 5000
+
+state_timeouts:
+  speaking_ms: 15000
+  thinking_ms: 30000
+  connecting_ms: 15000
+
+logging:
+  level: "INFO"
+  uvicorn_level: "error"
+
+backchannel:
+  words:
+    - "uh-huh"
+    - "yeah"
+    - "right"
+    - "mm-hm"
+    - "ok"
+    - "yep"
+    - "sure"
+    - "yes"
+    - "ah"
+    - "oh"
+    - "uh huh"
+    - "mm hm"
+    - "okay"
+    - "yup"
+    - "got it"
+  duration_threshold_ms: 200
+  classification_confidence: 1.0
+
+interruption_weights:
+  dur_score_divider: 1000.0
+  overlap_score_divider: 2000.0
+
+classifier:
+  model_id: "llama-3.1-8b-instant"
+  temperature: 0.0
+  fallback_confidence: 0.5
+  fallback_type: "topic-change"
+
+resource_usage:
+  sleep_ms: 5
+  ram_base: 32.0
+  ram_per_thread: 0.5
+  ram_per_task: 0.1
+  cpu_base: 90.0
+  cpu_per_task: 1.5
+  cpu_per_thread: 0.2
+
+volume:
+  percent_cap: 100
+  rms_multiplier: 400
+
+fallback_stt_latency: 180
+sentence_streaming_delay_s: 0.08

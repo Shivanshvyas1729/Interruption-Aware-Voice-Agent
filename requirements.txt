@@ -8,6 +8,7 @@
 # --- Phase 0 ---
 pytest
 python-dotenv
+requests
 
 # --- Phase 1 ---
 fastapi

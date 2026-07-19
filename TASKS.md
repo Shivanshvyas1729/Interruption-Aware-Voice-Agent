@@ -12,7 +12,7 @@ Use this board to track the implementation status of each build plan phase and o
 | **Phase 1** | Minimal Single-Turn Voice Agent | 🟢 *Completed* | `pytest tests/phase1/` |
 | **Phase 2** | Multi-Turn Conversation State | 🟢 *Completed* | `pytest tests/phase2/` |
 | **Phase 3** | Barge-In & React VAD Client | 🟢 *Completed* | `pytest tests/phase3/` |
-| **Phase 4** | Utterance Classification (FSM) | 🔴 *Not Started* | `pytest tests/phase4/` |
+| **Phase 4** | Utterance Classification (FSM) | 🟢 *Completed* | `pytest tests/phase4/` |
 | **Phase 5** | Latency Budgeting & Intercept | 🔴 *Not Started* | `pytest tests/phase5/` |
 | **Phase 6** | Celery Tool Worker & External APIs | 🔴 *Not Started* | `pytest tests/phase6/` |
 | **Phase 7** | LLM Semantic Cache & Failover | 🔴 *Not Started* | `pytest tests/phase7/` |
@@ -30,9 +30,9 @@ Use this board to track the implementation status of each build plan phase and o
 
 ## 🎯 Immediate Next Steps
 
-### 1. Initiate Phase 4 (Utterance Classification (FSM))
-- [ ] Implement `services/orchestrator/interruption_classifier.py` to filter backchannels and classify intents.
-- [ ] Wire FSM to transition speaking -> interrupted -> classifying -> dynamic target state.
-- [ ] Un-skip and implement `tests/phase4/test_classification.py` to evaluate classification on a 20-scenario dataset.
-- [ ] Verify intent classification accuracy target of $\ge$85% is met.
+### 1. Initiate Phase 5 (Latency Budgeting & Intercept)
+- [ ] Track word boundary timestamps from Cartesia stream in `services/orchestrator/tts_client.py`.
+- [ ] Implement `services/orchestrator/context_merge.py` for cutting off agent response at the interrupted word.
+- [ ] Perform context merge combining original prompt history, partial playback, and classified user intent.
+- [ ] Un-skip and implement `tests/phase5/test_resolution.py` to assert correct context cutting and formatting.
 - [ ] Validate everything via `python -m pytest tests/ -q`.

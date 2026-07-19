@@ -57,8 +57,8 @@ def publish_agent_audio(session_id: str, audio_stream):
                 detail={"msg": "Discarded remaining audio frames in relay queue"}
             )
             break
-        # Mock streaming yield simulation
-        time.sleep(0.01)
+        from common.config.voice_settings import get as vc_get
+        time.sleep(vc_get("tts.mock_chunk_sleep_ms", 10) / 1000.0)
 
 def emit_media_event(session_id: str, event_kind: str, detail: dict = None):
     """Converts local state updates into MediaEvents and publishes them."""

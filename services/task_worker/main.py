@@ -19,7 +19,10 @@ class HealthHandler(BaseHTTPRequestHandler):
             self.send_response(404)
             self.end_headers()
 
-def make_server(port: int = 8002) -> HTTPServer:
+def make_server(port: int = None) -> HTTPServer:
+    from common.config.voice_settings import get as vc_get
+    if port is None:
+        port = vc_get("ports.task_worker", 8002)
     server = HTTPServer(("0.0.0.0", port), HealthHandler)
     logger.log(
         event_name="service_started",
@@ -29,7 +32,10 @@ def make_server(port: int = 8002) -> HTTPServer:
     )
     return server
 
-def run_server(port: int = 8002) -> None:
+def run_server(port: int = None) -> None:
+    from common.config.voice_settings import get as vc_get
+    if port is None:
+        port = vc_get("ports.task_worker", 8002)
     server = make_server(port)
     try:
         server.serve_forever()
@@ -39,5 +45,6 @@ def run_server(port: int = 8002) -> None:
         server.server_close()
 
 if __name__ == "__main__":
-    port = int(sys.argv[1]) if len(sys.argv) > 1 else 8002
+    from common.config.voice_settings import get as vc_get
+    port = int(sys.argv[1]) if len(sys.argv) > 1 else vc_get("ports.task_worker", 8002)
     run_server(port)

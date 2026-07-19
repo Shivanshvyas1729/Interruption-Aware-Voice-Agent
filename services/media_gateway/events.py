@@ -2,6 +2,7 @@ from dataclasses import dataclass, field
 import time
 import requests
 from common.config.settings import get_settings
+from common.config.voice_settings import get as vc_get
 
 @dataclass
 class MediaEvent:
@@ -12,17 +13,18 @@ class MediaEvent:
 
 def publish(event: MediaEvent):
     """Publishes media events to the orchestrator control plane."""
-    # Route via REST endpoint on orchestrator
+    host = vc_get("urls.orchestrator_host", "127.0.0.1")
+    port = vc_get("ports.orchestrator", 8000)
     try:
         requests.post(
-            "http://localhost:8000/media-events",
+            f"http://{host}:{port}/media-events",
             json={
                 "session_id": event.session_id,
                 "kind": event.kind,
                 "ts": event.ts,
                 "detail": event.detail
             },
-            timeout=1
+            timeout=vc_get("tts.kill_timeout_s", 1)
         )
     except Exception:
         # Silently absorb failure to allow offline tests to pass without full background server bindings

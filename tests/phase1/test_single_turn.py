@@ -17,16 +17,18 @@ os.environ["ACTIVE_PHASE"] = "1"
 os.environ["SECRETS_BACKEND"] = "local"
 
 def test_single_turn_end_to_end_from_fixture(capsys):
+    from common.config.voice_settings import get as vc_get
     session_id = "session-test-phase1"
     room_name = "room-test-phase1"
     
-    # 1. Start Orchestrator FastAPI server
-    orch_server = make_orch_server(8010)
+    orch_port = vc_get("ports.test_single_orchestrator", 8010)
+    gw_port = vc_get("ports.test_api_gateway", 8013)
+    
+    orch_server = make_orch_server(orch_port)
     t_orch = threading.Thread(target=orch_server.run, daemon=True)
     t_orch.start()
     
-    # 2. Start API Gateway FastAPI server
-    config = uvicorn.Config(gateway_app, host="0.0.0.0", port=8013, log_level="error")
+    config = uvicorn.Config(gateway_app, host="0.0.0.0", port=gw_port, log_level=vc_get("logging.uvicorn_level", "error"))
     gw_server = uvicorn.Server(config)
     t_gw = threading.Thread(target=gw_server.run, daemon=True)
     t_gw.start()
@@ -35,10 +37,9 @@ def test_single_turn_end_to_end_from_fixture(capsys):
     time.sleep(0.5)
     
     try:
-        # 3. Request LiveKit room join token from API Gateway POST /auth
         auth_data = json.dumps({"session_id": session_id, "room_name": room_name}).encode("utf-8")
         req = urllib.request.Request(
-            "http://127.0.0.1:8013/auth",
+            f"http://127.0.0.1:{gw_port}/auth",
             data=auth_data,
             headers={"Content-Type": "application/json"}
         )

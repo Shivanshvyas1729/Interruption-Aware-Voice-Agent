@@ -1,0 +1,84 @@
+{
+  "scenarios": [
+    {
+      "text": "no, actually I wanted the red one",
+      "expected_type": "correction"
+    },
+    {
+      "text": "wait, that's not what I meant. I want to buy two tickets, not three",
+      "expected_type": "correction"
+    },
+    {
+      "text": "no, change that to Tuesday instead of Wednesday",
+      "expected_type": "correction"
+    },
+    {
+      "text": "actually, cancel that and let's go with the cheaper model",
+      "expected_type": "correction"
+    },
+    {
+      "text": "by the way, what time is the flight tomorrow?",
+      "expected_type": "topic-change"
+    },
+    {
+      "text": "oh, that reminds me, did you check the weather in Tokyo?",
+      "expected_type": "topic-change"
+    },
+    {
+      "text": "let's talk about something else. What is the capital of France?",
+      "expected_type": "topic-change"
+    },
+    {
+      "text": "anyways, can you tell me a joke?",
+      "expected_type": "topic-change"
+    },
+    {
+      "text": "sorry, what did you mean by interest rate?",
+      "expected_type": "clarification"
+    },
+    {
+      "text": "wait, why is the fee so high?",
+      "expected_type": "clarification"
+    },
+    {
+      "text": "can you repeat that last part about the insurance?",
+      "expected_type": "clarification"
+    },
+    {
+      "text": "what does that term stand for?",
+      "expected_type": "clarification"
+    },
+    {
+      "text": "stop speaking",
+      "expected_type": "stop_cancel"
+    },
+    {
+      "text": "never mind, let's forget it",
+      "expected_type": "stop_cancel"
+    },
+    {
+      "text": "cancel this request",
+      "expected_type": "stop_cancel"
+    },
+    {
+      "text": "just stop, thank you",
+      "expected_type": "stop_cancel"
+    },
+    {
+      "text": "also, could you add some fries to that order?",
+      "expected_type": "add_on"
+    },
+    {
+      "text": "oh, and make sure it's gift wrapped as well",
+      "expected_type": "add_on"
+    },
+    {
+      "text": "and please send a confirmation email to me",
+      "expected_type": "add_on"
+    },
+    {
+      "text": "in addition, let's include the warranty",
+      "expected_type": "add_on"
+    }
+  ]
+}

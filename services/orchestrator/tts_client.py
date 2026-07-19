@@ -2,9 +2,18 @@ import time
 import requests
 from typing import Optional
 from common.config.settings import get_settings
+from common.config.voice_settings import get as vc_get
 from common.logging.logger import get_logger
 
 logger = get_logger("cartesia-tts")
+
+def _mock_silence_bytes():
+    silence_len = vc_get("tts.mock_chunk_silence_bytes", 16000)
+    return (
+        b'RIFF\x24\x3e\x00\x00WAVEfmt \x10\x00\x00\x00\x01\x00\x01\x00'
+        b'@\x1f\x00\x00\x80\x3e\x00\x00\x02\x00\x10\x00data\x00\x3e\x00\x00'
+        + b'\x00' * silence_len
+    )
 
 def speak(session_id: str, turn_id: str, text: str) -> bytes:
     """Synthesizes text input into audio stream bytes using Cartesia or mock fallback."""
@@ -15,7 +24,7 @@ def speak(session_id: str, turn_id: str, text: str) -> bytes:
     
     # Return mock audio bytes if using dummy credentials or test mode
     if not api_key or api_key == "dummy_val" or settings.env == "test":
-        time.sleep(0.05)
+        time.sleep(vc_get("tts.mock_sleep_ms", 50) / 1000.0)
         latency_ms = int((time.time() - start_time) * 1000)
         logger.log(
             event_name="tts_first_audio",
@@ -31,22 +40,49 @@ def speak(session_id: str, turn_id: str, text: str) -> bytes:
             latency_ms=latency_ms + 10,
             detail={}
         )
-        return b"mock_audio_bytes_wav"
+        return _mock_silence_bytes()
+
+    from services.orchestrator.cancellation_manager import cancellation_manager
+    if cancellation_manager.is_cancelled(session_id):
+        return b""
 
     # Real call using cartesia client
     from cartesia import Cartesia
     client = Cartesia(api_key=api_key)
     
     response = client.tts.bytes(
-        model_id="sonic-english",
+        model_id=vc_get("tts.model_id", "sonic-3.5"),
         transcript=text,
-        voice_id="a0e9987c-ab7f-47c1-a6ea-cc97b37d7c2a",  # Standard voice
+        voice={
+            "mode": "id",
+            "id": vc_get("tts.voice_id", "4459a9a5-69d6-4680-b970-e13dc51845b6")
+        },
+        language=vc_get("tts.language", "en"),
         output_format={
-            "container": "wav",
-            "encoding": "pcm_s16le",
-            "sample_rate": 24000
+            "container": vc_get("tts.output_format.container", "wav"),
+            "encoding": vc_get("tts.output_format.encoding", "pcm_s16le"),
+            "sample_rate": vc_get("tts.output_format.sample_rate", 24000)
         }
     )
+    
+    # Consume generator/iterator if returned by Cartesia SDK
+    if isinstance(response, bytes):
+        audio_bytes = response
+    elif hasattr(response, "__iter__") or hasattr(response, "__next__"):
+        chunks = []
+        for chunk in response:
+            if cancellation_manager.is_cancelled(session_id):
+                logger.log(
+                    event_name="tts_cancelled",
+                    session_id=session_id,
+                    turn_id=turn_id,
+                    detail={"msg": "TTS synthesis aborted mid-stream."}
+                )
+                return b""
+            chunks.append(chunk)
+        audio_bytes = b"".join(chunks)
+    else:
+        audio_bytes = bytes(response)
     
     latency_ms = int((time.time() - start_time) * 1000)
     logger.log(
@@ -63,7 +99,64 @@ def speak(session_id: str, turn_id: str, text: str) -> bytes:
         latency_ms=latency_ms,
         detail={}
     )
-    return response
+    return audio_bytes
+
+def speak_stream(session_id: str, turn_id: str, text: str, chunk_callback) -> None:
+    """Streams synthesized response audio chunks chunk-by-chunk to the callback."""
+    import time
+    start_time = time.time()
+    settings = get_settings()
+    api_key = settings.cartesia_api_key
+    
+    if not api_key or api_key == "dummy_val" or settings.env == "test":
+        time.sleep(vc_get("tts.mock_sleep_ms", 50) / 1000.0)
+        chunk_size = vc_get("tts.chunk_size", 1600)
+        num_chunks = 10
+        mock_chunk = b'\x00' * chunk_size
+        for _ in range(num_chunks):
+            from services.orchestrator.cancellation_manager import cancellation_manager
+            if cancellation_manager.is_cancelled(session_id):
+                break
+            chunk_callback(mock_chunk)
+            time.sleep(vc_get("tts.mock_chunk_sleep_ms", 10) / 1000.0)
+        return
+
+    from services.orchestrator.cancellation_manager import cancellation_manager
+    if cancellation_manager.is_cancelled(session_id):
+        return
+
+    from cartesia import Cartesia
+    client = Cartesia(api_key=api_key)
+    
+    response = client.tts.bytes(
+        model_id=vc_get("tts.model_id", "sonic-3.5"),
+        transcript=text,
+        voice={
+            "mode": "id",
+            "id": vc_get("tts.voice_id", "4459a9a5-69d6-4680-b970-e13dc51845b6")
+        },
+        language=vc_get("tts.language", "en"),
+        output_format={
+            "container": vc_get("tts.output_format.container", "wav"),
+            "encoding": vc_get("tts.output_format.encoding", "pcm_s16le"),
+            "sample_rate": vc_get("tts.output_format.sample_rate", 24000)
+        }
+    )
+    
+    # Stream chunks progressively
+    if isinstance(response, bytes):
+        chunk_callback(response)
+    elif hasattr(response, "__iter__") or hasattr(response, "__next__"):
+        for chunk in response:
+            if cancellation_manager.is_cancelled(session_id):
+                logger.log(
+                    event_name="tts_cancelled",
+                    session_id=session_id,
+                    turn_id=turn_id,
+                    detail={"msg": "TTS streaming synthesis aborted."}
+                )
+                break
+            chunk_callback(chunk)
 
 def kill(session_id: str) -> None:
     """Stops the streaming synthesis and kills the audio output (Phase 3)."""
@@ -77,15 +170,15 @@ def kill(session_id: str) -> None:
         detail={"msg": "Sending Cartesia kill command"}
     )
     
-    # Notify Media Gateway to stop relaying audio packets
     settings = get_settings()
-    # During test execution settings.env == "test" uses port 8031
-    port = 8031 if settings.env == "test" else 8001
+    from common.config.voice_settings import get as vc_get
+    port = vc_get("ports.test_media_gateway", 8031) if settings.env == "test" else vc_get("ports.media_gateway", 8001)
+    host = vc_get("urls.media_gateway_host", "127.0.0.1")
     try:
         requests.post(
-            f"http://127.0.0.1:{port}/tts-control",
+            f"http://{host}:{port}/tts-control",
             json={"session_id": session_id, "action": "stop"},
-            timeout=1
+            timeout=vc_get("tts.kill_timeout_s", 1)
         )
     except Exception:
         pass

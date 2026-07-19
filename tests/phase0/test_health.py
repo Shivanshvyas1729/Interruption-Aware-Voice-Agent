@@ -12,10 +12,11 @@ os.environ["ACTIVE_PHASE"] = "0"
 os.environ["SECRETS_BACKEND"] = "local"
 
 def import_service_main(service_name: str):
-    """Dynamically import main.py from services due to hyphenated package names."""
+    """Dynamically import main.py from services."""
+    underscore_name = service_name.replace('-', '_')
     spec = importlib.util.spec_from_file_location(
-        f"services.{service_name.replace('-', '_')}.main",
-        f"services/{service_name}/main.py"
+        f"services.{underscore_name}.main",
+        f"services/{underscore_name}/main.py"
     )
     module = importlib.util.module_from_spec(spec)
     sys.modules[module.__name__] = module
@@ -23,15 +24,17 @@ def import_service_main(service_name: str):
     return module
 
 def test_all_services_healthy_and_log_startup(capsys):
-    # Import service modules
+    from common.config.voice_settings import get as vc_get
     orch_main = import_service_main("orchestrator")
     media_main = import_service_main("media-gateway")
     worker_main = import_service_main("task-worker")
     
-    # Create server instances on distinct ports
-    orch_server = orch_main.make_server(8000)
-    media_server = media_main.make_server(8001)
-    worker_server = worker_main.make_server(8002)
+    orch_port = vc_get("ports.orchestrator", 8000)
+    media_port = vc_get("ports.media_gateway", 8001)
+    worker_port = vc_get("ports.task_worker", 8002)
+    orch_server = orch_main.make_server(orch_port)
+    media_server = media_main.make_server(media_port)
+    worker_server = worker_main.make_server(worker_port)
     
     # Start servers in daemon threads
     servers = [orch_server, media_server, worker_server]
@@ -42,11 +45,15 @@ def test_all_services_healthy_and_log_startup(capsys):
         t.start()
         threads.append(t)
         
-    # Query health check endpoints
+    from common.config.voice_settings import get as vc_get
     try:
-        # Give Uvicorn server a brief moment to bind
         time.sleep(0.3)
-        for port, name in [(8000, "orchestrator"), (8001, "media-gateway"), (8002, "task-worker")]:
+        test_ports = [
+            (vc_get("ports.orchestrator", 8000), "orchestrator"),
+            (vc_get("ports.media_gateway", 8001), "media-gateway"),
+            (vc_get("ports.task_worker", 8002), "task-worker"),
+        ]
+        for port, name in test_ports:
             with urllib.request.urlopen(f"http://127.0.0.1:{port}/health", timeout=2) as response:
                 assert response.status == 200
                 data = json.loads(response.read().decode("utf-8"))

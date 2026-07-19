@@ -9,13 +9,16 @@ def on_media_event(session_id: str, event_kind: str, detail: dict = None):
     """Watches for VAD user speech alerts to detect interruptions while agent is speaking."""
     fsm = get_fsm_for_session(session_id)
     
-    # In Phase 3, any user speech start during active speaking triggers barge-in
-    if event_kind in {"user_speech_start", "user_speech_sustained", "vad_interrupted"}:
+    # Require sustained speech (200ms threshold) or explicit VAD interruption trigger
+    if event_kind in {"user_speech_sustained", "vad_interrupted"}:
         if fsm.state == "speaking":
             trigger_kill(session_id)
 
 def trigger_kill(session_id: str):
     """Fires TTS kill signals, transitions FSM, and tracks latency."""
+    from services.orchestrator.cancellation_manager import cancellation_manager
+    cancellation_manager.cancel_session(session_id, "vad_interrupted")
+    
     start_time = time.time()
     fsm = get_fsm_for_session(session_id)
     
@@ -33,8 +36,5 @@ def trigger_kill(session_id: str):
     # 3. Call tts_client.kill() to send kill signal server-side
     tts_kill(session_id)
     
-    # Calculate stop latency
-    stop_latency = int((time.time() - start_time) * 1000)
-    
-    # Transition back to listening (idle/ready for new STT input)
-    fsm.transition("listening")
+    # Note: FSM remains in 'interrupted' state until the user finishes speaking
+    # and the final STT transcript is received for classification in fsm.py.

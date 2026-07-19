@@ -15,15 +15,16 @@ os.environ["ACTIVE_PHASE"] = "3"
 os.environ["SECRETS_BACKEND"] = "local"
 
 def test_barge_in_stops_tts_within_latency_budget(capsys):
+    from common.config.voice_settings import get as vc_get
     session_id = "session-test-phase3"
     
-    # 1. Start Orchestrator FastAPI server on port 8030
-    orch_server = make_orch_server(8030)
+    orch_port = vc_get("ports.test_orchestrator", 8030)
+    media_port = vc_get("ports.test_media_gateway", 8031)
+    orch_server = make_orch_server(orch_port)
     t_orch = threading.Thread(target=orch_server.run, daemon=True)
     t_orch.start()
     
-    # 2. Start Media Gateway FastAPI server on port 8031 (setting test environment port)
-    media_server = make_media_server(8031)
+    media_server = make_media_server(media_port)
     t_media = threading.Thread(target=media_server.run, daemon=True)
     t_media.start()
     
@@ -43,8 +44,8 @@ def test_barge_in_stops_tts_within_latency_budget(capsys):
         # 4. Inject simulated user VAD interruption event
         fsm.handle_media_event("vad_interrupted", {})
         
-        # Verify that the FSM transitioned through interrupted back to listening
-        assert fsm.state == "listening"
+        # Verify that the FSM transitioned to interrupted and remains there awaiting STT
+        assert fsm.state == "interrupted"
         
     finally:
         # Stop background servers cleanly

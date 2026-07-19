@@ -34,9 +34,9 @@ def transcribe_audio_file(session_id: str, filepath: str) -> str:
     settings = get_settings()
     api_key = settings.deepgram_api_key
     
-    # If keys are dummy, empty, or running in test mode, return static transcription mock
+    from common.config.voice_settings import get as vc_get
     if not api_key or api_key == "dummy_val" or settings.env == "test":
-        transcript = "What's the weather like on Mars?"
+        transcript = vc_get("mock.stt_transcript", "What's the weather like on Mars?")
         handle_transcript(session_id, transcript, is_final=True)
         return transcript
         
@@ -48,7 +48,7 @@ def transcribe_audio_file(session_id: str, filepath: str) -> str:
         buffer_data = file.read()
         response = deepgram.listen.v1.media.transcribe_file(
             buffer_data,
-            model="nova-3",
+            model=vc_get("stt.model_id", "nova-3"),
             smart_format=True
         )
         transcript = response.results.channels[0].alternatives[0].transcript
