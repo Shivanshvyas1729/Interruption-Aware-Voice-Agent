@@ -24,7 +24,7 @@ Pivot is a real-time voice agent designed to handle natural human-agent conversa
 
 ```
 pivot/
-├── client/                 # React+VAD voice client & Phase 1 minimal harness
+├── client/                 # Voice client UI (phase1_minimal_harness primary production UI & React app shell)
 ├── services/               # Microservices architecture (edge, media, orchestrator, workers)
 ├── common/                 # Shared logging, config, schema, and utility libraries
 ├── tests/                  # Cumulative test suite for all implementation phases

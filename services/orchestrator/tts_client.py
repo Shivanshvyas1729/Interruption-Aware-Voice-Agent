@@ -111,12 +111,15 @@ def speak_stream(session_id: str, turn_id: str, text: str, chunk_callback) -> No
     if not api_key or api_key == "dummy_val" or settings.env == "test":
         time.sleep(vc_get("tts.mock_sleep_ms", 50) / 1000.0)
         chunk_size = vc_get("tts.chunk_size", 1600)
-        num_chunks = 10
+        words = text.split()
+        num_chunks = max(10, len(words))
         mock_chunk = b'\x00' * chunk_size
-        for _ in range(num_chunks):
+        for idx in range(num_chunks):
             from services.orchestrator.cancellation_manager import cancellation_manager
             if cancellation_manager.is_cancelled(session_id):
                 break
+            if idx < len(words):
+                on_word_timestamp(session_id, words[idx], time.time())
             chunk_callback(mock_chunk)
             time.sleep(vc_get("tts.mock_chunk_sleep_ms", 10) / 1000.0)
         return
@@ -194,4 +197,8 @@ def kill(session_id: str) -> None:
 
 def on_word_timestamp(session_id: str, word: str, ts: float) -> None:
     """Tracks word boundaries for interruption context recovery (Phase 5)."""
-    pass
+    from services.orchestrator.fsm import get_fsm_for_session
+    fsm = get_fsm_for_session(session_id)
+    if not hasattr(fsm, "spoken_words") or fsm.spoken_words is None:
+        fsm.spoken_words = []
+    fsm.spoken_words.append(word)

@@ -161,6 +161,8 @@ class InterruptionIntelligence:
             return self._build_result("CANCEL_AND_RESTART", "topic_change", weighted_score, "Classified as topic change.")
         elif intent == "clarification":
             return self._build_result("CANCEL_AND_RESTART", "clarification", weighted_score, "Classified as clarification.")
+        elif intent in ("add_on", "add-on"):
+            return self._build_result("CANCEL_AND_RESTART", "add_on", weighted_score, "Classified as add-on.")
             
         return self._build_result("IGNORE_CONTINUE", "noise", weighted_score, "Default fallback ignore.")
 

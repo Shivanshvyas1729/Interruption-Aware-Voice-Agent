@@ -14,6 +14,9 @@ class VoiceAgentFSM:
         self.last_llm_latency = 0
         self.last_tts_latency = 0
         self.last_total_latency = 0  # FIX: initialize to avoid AttributeError before first turn
+        self.spoken_words = []
+        self.current_reply = ""
+        self.resume_text = ""
         try:
             import os
             self.confidence_threshold = float(os.environ.get("INTERRUPTION_CONFIDENCE_THRESHOLD", "0.6"))
@@ -50,6 +53,9 @@ class VoiceAgentFSM:
         
         # Check if we were actively interrupted (state is interrupted or speaking)
         is_interrupted_turn = self.state in {"interrupted", "speaking"}
+        
+        if not is_interrupted_turn:
+            self.spoken_words = []
         
         if is_interrupted_turn:
             self.transition("classifying")
@@ -103,6 +109,18 @@ class VoiceAgentFSM:
                     tts_kill(self.session_id)
                 except Exception:
                     pass
+                
+                # Truncate history via resolve
+                spoken_words = getattr(self, "spoken_words", [])
+                current_reply = getattr(self, "current_reply", "")
+                reply_words = current_reply.split()
+                num_spoken = len(spoken_words)
+                spoken = reply_words[:num_spoken]
+                unspoken = reply_words[num_spoken:]
+                
+                from services.orchestrator.context_merge import resolve
+                resolve(self.session_id, spoken, unspoken, category)
+                
                 self.transition("idle")
                 return None, None
             elif decision == "CANCEL_AND_RESTART":
@@ -110,6 +128,20 @@ class VoiceAgentFSM:
                 from services.orchestrator.cancellation_manager import cancellation_manager
                 cancellation_manager.cancel_session(self.session_id, category)
                 cancellation_manager.reset_session(self.session_id)
+                
+                # Truncate/merge history via resolve
+                spoken_words = getattr(self, "spoken_words", [])
+                current_reply = getattr(self, "current_reply", "")
+                reply_words = current_reply.split()
+                num_spoken = len(spoken_words)
+                spoken = reply_words[:num_spoken]
+                unspoken = reply_words[num_spoken:]
+                
+                from services.orchestrator.context_merge import resolve
+                res = resolve(self.session_id, spoken, unspoken, category)
+                if res["strategy"] == "clarification":
+                    self.resume_text = " ".join(unspoken)
+                    
                 self.transition("thinking")
         else:
             from services.orchestrator.cancellation_manager import cancellation_manager
@@ -124,6 +156,14 @@ class VoiceAgentFSM:
         from services.orchestrator.state_store import load_history, save_turn
         history = load_history(self.session_id)
         
+        # Inject resume context if present
+        if getattr(self, "resume_text", ""):
+            history.append({
+                "role": "system",
+                "content": f"Note: The user interrupted your previous response. After addressing the user's latest query, please resume/incorporate the following unspoken points: {self.resume_text}"
+            })
+            self.resume_text = ""
+            
         # 2. Append user's transcript as a new user message
         history.append({"role": "user", "content": transcript})
         
@@ -136,6 +176,9 @@ class VoiceAgentFSM:
         reply_text = call_primary(self.session_id, str(self.turn_id), history)
         self.last_llm_latency = int((time.time() - start_llm) * 1000)
         print(f"[FSM] LLM reply ({self.last_llm_latency}ms): {reply_text!r}")
+        
+        self.current_reply = reply_text
+        self.spoken_words = []
         
         if cancellation_manager.is_cancelled(self.session_id):
             return None, None

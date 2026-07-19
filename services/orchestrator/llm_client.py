@@ -10,7 +10,7 @@ from services.orchestrator.context_manager import (
 
 logger = get_logger("primary-llm")
 
-def call_primary(session_id: str, turn_id: str, messages: list[dict]) -> str:
+def call_primary_direct(session_id: str, turn_id: str, messages: list[dict]) -> str:
     """Streams completions from Groq or mock fallback depending on configuration."""
     settings = get_settings()
     api_key = settings.groq_api_key
@@ -109,3 +109,29 @@ def call_primary(session_id: str, turn_id: str, messages: list[dict]) -> str:
                 "completion_tokens": completion_tok, "budget_pct": budget.usage_pct}
     )
     return full_text
+
+def call_primary(session_id: str, turn_id: str, messages: list[dict]) -> str:
+    """
+    Outer LLM client wrapper that checks semantic cache first,
+    then executes call_with_failover and caches the response.
+    """
+    from services.orchestrator import cache_client, failover
+    settings = get_settings()
+    
+    # Extract query
+    query = messages[-1]["content"] if messages else ""
+    system_prompt = vc_get("llm.system_prompt", "You are a helpful, concise voice assistant.")
+    model_name = settings.groq_model or "groq-default"
+    
+    # 1. Semantic Cache Lookup
+    cached_res = cache_client.lookup(session_id, turn_id, query, system_prompt, model_name, messages)
+    if cached_res is not None:
+        return cached_res
+        
+    # 2. Call Failover Router
+    response = failover.call_with_failover(session_id, turn_id, messages)
+    
+    # 3. Store in Semantic Cache
+    cache_client.store(session_id, query, response, system_prompt, model_name, messages)
+    
+    return response

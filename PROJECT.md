@@ -68,8 +68,8 @@ graph TD
 ```
 pivot/
 ├── client/
-│   ├── web/                     # React + VAD client
-│   └── test-harness/            # Minimal client used in early phases
+│   ├── phase1_minimal_harness/  # Canonical voice client UI (Primary Production App)
+│   └── src/                     # React app shell
 │
 ├── services/
 │   ├── edge/
@@ -144,6 +144,6 @@ Every component must log structured JSON lines containing:
 ## 🏛️ Key Decisions & Audits
 
 1. **Port Direction Audit:** Rectified 22 out of 35 direction-reversed or generic-mapped ports in the legacy schema. Validated continuously in CI via `scripts/validate_architecture.py`.
-2. **Phase 1 Client Simplification:** To isolate pipeline issues from complex frontend UI lifecycles, a minimal test harness page is used in Phase 1 and promoted to React/Silero VAD in Phase 3.
+2. **Canonical Voice Client UI:** The canonical frontend under `client/phase1_minimal_harness/` is the primary production application, supporting WebRTC, LiveKit, local VAD, interruption classification, and latency monitoring dashboards.
 3. **Feature Flags for Sponsor Tech:** Mastra, Qdrant, and Enkrypt are integrated behind toggles (`*_ENABLED` env vars) to avoid late-stage stability issues.
 4. **Reference Architecture JSON:** `rules/architecture-1784240202633.json` is provided as a reference baseline but contains uncorrected legacy edges. Implementations must follow the corrected data flow (section 1 above) rather than using the raw JSON blindly.

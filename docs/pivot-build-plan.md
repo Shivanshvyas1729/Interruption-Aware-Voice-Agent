@@ -154,8 +154,8 @@ Your five, plus what I'm adding and why:
 ## 2. Repo & Environment Conventions
 pivot/
 ├── client/
-│   ├── web/                     # React + VAD client
-│   └── test-harness/            # Minimal client used in early phases
+│   ├── phase1_minimal_harness/  # Canonical voice client UI (Primary Production App)
+│   └── src/                     # React app shell
 │
 ├── services/
 │   ├── edge/

@@ -13,9 +13,9 @@ Use this board to track the implementation status of each build plan phase and o
 | **Phase 2** | Multi-Turn Conversation State | 🟢 *Completed* | `pytest tests/phase2/` |
 | **Phase 3** | Barge-In & React VAD Client | 🟢 *Completed* | `pytest tests/phase3/` |
 | **Phase 4** | Utterance Classification (FSM) | 🟢 *Completed* | `pytest tests/phase4/` |
-| **Phase 5** | Latency Budgeting & Intercept | 🔴 *Not Started* | `pytest tests/phase5/` |
-| **Phase 6** | Celery Tool Worker & External APIs | 🔴 *Not Started* | `pytest tests/phase6/` |
-| **Phase 7** | LLM Semantic Cache & Failover | 🔴 *Not Started* | `pytest tests/phase7/` |
+| **Phase 5** | Latency Budgeting & Intercept | 🟢 *Completed* | `pytest tests/phase5/` |
+| **Phase 6** | Celery Tool Worker & External APIs | 🟢 *Completed* | `pytest tests/phase6/` |
+| **Phase 7** | LLM Semantic Cache & Failover | 🟢 *Completed* | `pytest tests/phase7/` |
 | **Phase 8** | RAG (Qdrant), Guardrails (Enkrypt), Agent (Mastra) | 🔴 *Not Started* | `pytest tests/phase8/` |
 | **Phase 9** | Observability (OTEL/Loki/Prometheus) & Load Sim | 🔴 *Not Started* | `pytest tests/phase9/` |
 | **Phase 10** | Production Hardening, Consent & Secrets Manager | 🔴 *Not Started* | `pytest tests/phase10/` |

@@ -86,8 +86,8 @@ Scope:
   (not the original uploaded architecture-*.json's literal edges).
 - services/orchestrator/stt_client.py, llm_client.py (call_primary only),
   tts_client.py (speak only), fsm.py (Phase 1 subset only).
-- client/phase1_minimal_harness/ — bare join/listen/speak test page,
-  calling api_gateway's /auth endpoint for a real token, not a hardcoded one.
+ - client/phase1_minimal_harness/ — primary voice client UI,
+   calling api_gateway's /auth endpoint for a real token, not a hardcoded one.
 
 Do NOT implement: memory (Phase 2), barge-in/VAD (Phase 3), classification
 (Phase 4), tools (Phase 6), failover/cache (Phase 7), guardrails/RAG
@@ -101,7 +101,7 @@ Then:
    fixture (not a live mic).
 3. Run `pytest tests/ -q` — Phase 0 and Phase 1 tests both green, rest
    still skipped.
-4. Also do a manual live smoke test via the harness page and confirm you
+4. Also do a manual live smoke test via the primary voice client UI page and confirm you
    can hear a reply — note the result in your phase completion notes.
 5. Log every hop's latency now even though no budget is enforced yet.
 ```
