@@ -115,8 +115,8 @@ def speak_stream(session_id: str, turn_id: str, text: str, chunk_callback) -> No
         num_chunks = max(10, len(words))
         mock_chunk = b'\x00' * chunk_size
         for idx in range(num_chunks):
-            from services.orchestrator.cancellation_manager import cancellation_manager
-            if cancellation_manager.is_cancelled(session_id):
+            from services.orchestrator.async_pipeline import get_current_turn
+            if cancellation_manager.is_cancelled(session_id) or int(turn_id) < get_current_turn(session_id):
                 break
             if idx < len(words):
                 on_word_timestamp(session_id, words[idx], time.time())
@@ -125,7 +125,8 @@ def speak_stream(session_id: str, turn_id: str, text: str, chunk_callback) -> No
         return
 
     from services.orchestrator.cancellation_manager import cancellation_manager
-    if cancellation_manager.is_cancelled(session_id):
+    from services.orchestrator.async_pipeline import get_current_turn
+    if cancellation_manager.is_cancelled(session_id) or int(turn_id) < get_current_turn(session_id):
         return
 
     from cartesia import Cartesia
@@ -151,7 +152,8 @@ def speak_stream(session_id: str, turn_id: str, text: str, chunk_callback) -> No
         chunk_callback(response)
     elif hasattr(response, "__iter__") or hasattr(response, "__next__"):
         for chunk in response:
-            if cancellation_manager.is_cancelled(session_id):
+            from services.orchestrator.async_pipeline import get_current_turn
+            if cancellation_manager.is_cancelled(session_id) or int(turn_id) < get_current_turn(session_id):
                 logger.log(
                     event_name="tts_cancelled",
                     session_id=session_id,
@@ -195,10 +197,264 @@ def kill(session_id: str) -> None:
         detail={"msg": "TTS stream successfully terminated"}
     )
 
+def speak_stream_ws(session_id: str, turn_id: str, text: str, chunk_callback) -> None:
+    """Streams synthesized response audio using Cartesia WebSocket connection with real timestamps."""
+    import time
+    start_time = time.time()
+    settings = get_settings()
+    api_key = settings.cartesia_api_key
+
+    # Return mock audio bytes if using dummy credentials or test mode
+    if not api_key or api_key == "dummy_val" or settings.env == "test":
+        # Fall back to speak_stream mock branch
+        speak_stream(session_id, turn_id, text, chunk_callback)
+        return
+
+    from services.orchestrator.cancellation_manager import cancellation_manager
+    from services.orchestrator.async_pipeline import get_current_turn
+    if cancellation_manager.is_cancelled(session_id) or int(turn_id) < get_current_turn(session_id):
+        return
+
+    from cartesia import Cartesia
+    try:
+        client = Cartesia(api_key=api_key)
+        ws = client.tts.websocket_connect().enter()
+    except Exception as e:
+        logger.log_error("tts_ws_connect_failed", session_id, turn_id, e)
+        logger.log(
+            event_name="tts_ws_fallback",
+            session_id=session_id,
+            turn_id=turn_id,
+            detail={"msg": "Falling back to REST speak_stream due to connection failure."}
+        )
+        speak_stream(session_id, turn_id, text, chunk_callback)
+        return
+
+    context_id = f"{session_id}:{turn_id}"
+    try:
+        ctx = ws.context(
+            context_id=context_id,
+            model_id=vc_get("tts.model_id", "sonic-3.5"),
+            voice={
+                "mode": "id",
+                "id": vc_get("tts.voice_id", "4459a9a5-69d6-4680-b970-e13dc51845b6")
+            },
+            output_format={
+                "container": "raw",
+                "encoding": vc_get("tts.output_format.encoding", "pcm_s16le"),
+                "sample_rate": vc_get("tts.output_format.sample_rate", 24000)
+            },
+            add_timestamps=True
+        )
+
+        ctx.push(text, continue_=False)
+
+        first_audio_logged = False
+        for event in ctx.receive():
+            from services.orchestrator.async_pipeline import get_current_turn
+            if cancellation_manager.is_cancelled(session_id) or int(turn_id) < get_current_turn(session_id):
+                logger.log(
+                    event_name="tts_ws_cancelled",
+                    session_id=session_id,
+                    turn_id=turn_id,
+                    detail={"msg": "Cancellation detected, sending cancel event to Cartesia"}
+                )
+                try:
+                    ctx.cancel()
+                except Exception as ce:
+                    logger.log_error("tts_ws_cancel_failed", session_id, turn_id, ce)
+                break
+
+            if event.type == "chunk":
+                if event.audio:
+                    if not first_audio_logged:
+                        first_audio_logged = True
+                        latency_ms = int((time.time() - start_time) * 1000)
+                        logger.log(
+                            event_name="tts_first_audio",
+                            session_id=session_id,
+                            turn_id=turn_id,
+                            latency_ms=latency_ms,
+                            detail={"transport": "websocket"}
+                        )
+                    chunk_callback(event.audio)
+            elif event.type == "timestamps":
+                if hasattr(event, "word_timestamps") and event.word_timestamps:
+                    words = getattr(event.word_timestamps, "words", []) or []
+                    starts = getattr(event.word_timestamps, "start", []) or []
+                    for w, t in zip(words, starts):
+                        on_word_timestamp(session_id, w, t)
+            elif event.type == "error":
+                raise RuntimeError(f"Cartesia WS error event: {event.error}")
+            elif event.type == "done":
+                break
+    except Exception as e:
+        logger.log_error("tts_ws_stream_failed", session_id, turn_id, e)
+        raise
+    finally:
+        try:
+            ws.close()
+        except Exception:
+            pass
+
+# ---------------------------------------------------------------------------
+# Sentence-level WebSocket helpers (Problem #4b)
+# ---------------------------------------------------------------------------
+
+# Process-scoped capability cache for ctx.push(..., continue_=True).
+# None  = not yet probed
+# True  = supported (Cartesia context continuation is available)
+# False = not supported (fall back to per-sentence speak_stream_ws)
+_ws_continuation_supported: Optional[bool] = None
+
+
+def open_ws_context(session_id: str, turn_id: str):
+    """
+    Open a Cartesia WebSocket and create a turn-scoped context.
+
+    Returns (ws, ctx) — the caller is responsible for calling close_ws_context()
+    when the turn is complete, cancelled, or when an exception occurs.
+
+    Raises on connection failure (caller should fall back to speak_stream_ws).
+    """
+    from cartesia import Cartesia
+    settings = get_settings()
+    api_key = settings.cartesia_api_key
+
+    client = Cartesia(api_key=api_key)
+    ws = client.tts.websocket_connect().enter()
+    context_id = f"{session_id}:{turn_id}"
+    ctx = ws.context(
+        context_id=context_id,
+        model_id=vc_get("tts.model_id", "sonic-3.5"),
+        voice={
+            "mode": "id",
+            "id": vc_get("tts.voice_id", "4459a9a5-69d6-4680-b970-e13dc51845b6"),
+        },
+        output_format={
+            "container": "raw",
+            "encoding": vc_get("tts.output_format.encoding", "pcm_s16le"),
+            "sample_rate": vc_get("tts.output_format.sample_rate", 24000),
+        },
+        add_timestamps=True,
+    )
+    return ws, ctx
+
+
+def speak_sentence_ws(
+    session_id: str,
+    turn_id: str,
+    text: str,
+    chunk_callback,
+    ws_ctx,
+    continue_: bool,
+) -> None:
+    """
+    Push one sentence into an already-open Cartesia context and stream the
+    resulting audio chunks via chunk_callback.
+
+    continue_=True for sentences 1..N-1; continue_=False for the final sentence.
+
+    If the SDK does not support ctx.push(..., continue_=True) a TypeError is
+    raised — the caller (TTSWorker._tts_sync) catches it, sets
+    _ws_continuation_supported=False, and re-calls speak_stream_ws directly.
+    """
+    global _ws_continuation_supported
+
+    from services.orchestrator.cancellation_manager import cancellation_manager
+    if cancellation_manager.is_cancelled(session_id):
+        return
+
+    # Probe once: try the push with continue_ kwarg.
+    # TypeError/AttributeError → SDK doesn't support it → fall through to caller.
+    try:
+        ws_ctx.push(text, continue_=continue_)
+        if _ws_continuation_supported is None:
+            _ws_continuation_supported = True
+    except (TypeError, AttributeError) as probe_err:
+        _ws_continuation_supported = False
+        logger.log(
+            event_name="tts_ws_continuation_unsupported",
+            session_id=session_id,
+            turn_id=turn_id,
+            detail={"error": str(probe_err), "fallback": "speak_stream_ws"},
+        )
+        raise  # TTSWorker catches this to degrade gracefully
+
+    first_audio_logged = False
+    start_time = time.time()
+
+    for event in ws_ctx.receive():
+        if cancellation_manager.is_cancelled(session_id):
+            logger.log(
+                event_name="tts_ws_cancelled",
+                session_id=session_id,
+                turn_id=turn_id,
+                detail={"msg": "Cancellation detected mid-sentence"},
+            )
+            try:
+                ws_ctx.cancel()
+            except Exception as ce:
+                logger.log_error("tts_ws_cancel_failed", session_id, turn_id, ce)
+            break
+
+        if event.type == "chunk":
+            if event.audio:
+                if not first_audio_logged:
+                    first_audio_logged = True
+                    latency_ms = int((time.time() - start_time) * 1000)
+                    logger.log(
+                        event_name="tts_first_audio",
+                        session_id=session_id,
+                        turn_id=turn_id,
+                        latency_ms=latency_ms,
+                        detail={"transport": "websocket_sentence"},
+                    )
+                chunk_callback(event.audio)
+        elif event.type == "timestamps":
+            if hasattr(event, "word_timestamps") and event.word_timestamps:
+                words = getattr(event.word_timestamps, "words", []) or []
+                starts = getattr(event.word_timestamps, "start", []) or []
+                for w, t in zip(words, starts):
+                    on_word_timestamp(session_id, w, t)
+        elif event.type == "error":
+            raise RuntimeError(f"Cartesia WS error event: {event.error}")
+        elif event.type == "done":
+            break
+
+
+def close_ws_context(ws, session_id: str, turn_id: str) -> None:
+    """
+    Best-effort close of a Cartesia WebSocket.  Never raises — safe to call
+    from finally blocks and cleanup paths.
+    """
+    try:
+        ws.close()
+    except Exception as e:
+        logger.log_error("tts_ws_close_failed", session_id, turn_id, e)
+
+
 def on_word_timestamp(session_id: str, word: str, ts: float) -> None:
     """Tracks word boundaries for interruption context recovery (Phase 5)."""
-    from services.orchestrator.fsm import get_fsm_for_session
-    fsm = get_fsm_for_session(session_id)
-    if not hasattr(fsm, "spoken_words") or fsm.spoken_words is None:
-        fsm.spoken_words = []
-    fsm.spoken_words.append(word)
+    # Option B: Preserve dual-write for legacy /chat endpoint using fsm.py
+    try:
+        from services.orchestrator.fsm import get_fsm_for_session
+        fsm = get_fsm_for_session(session_id)
+        if fsm is not None:
+            if not hasattr(fsm, "spoken_words") or fsm.spoken_words is None:
+                fsm.spoken_words = []
+            fsm.spoken_words.append(word)
+    except Exception:
+        pass
+
+    # Report to the active live pipeline FSM worker thread-safely
+    try:
+        from services.orchestrator.async_pipeline import get_pipeline, WordMessage, _main_loop
+        pipeline = get_pipeline()
+        if pipeline and pipeline.fsm and hasattr(pipeline.fsm, "word_input") and pipeline.fsm.word_input and _main_loop:
+            _main_loop.call_soon_threadsafe(
+                pipeline.fsm.word_input.put_nowait,
+                WordMessage(session_id=session_id, word=word)
+            )
+    except Exception:
+        pass

@@ -56,5 +56,10 @@ class CancellationManager:
                 detail={"msg": "Session cancellation flag cleared for new turn."}
             )
 
+    def cleanup_session(self, session_id: str):
+        """Remove session references on disconnect to prevent memory leaks."""
+        self._cancelled_sessions.discard(session_id)
+        self._active_tasks.pop(session_id, None)
+
 # Global singleton instance
 cancellation_manager = CancellationManager()

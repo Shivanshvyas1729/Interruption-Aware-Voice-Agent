@@ -15,7 +15,7 @@ fastapi
 uvicorn
 livekit-api
 deepgram-sdk
-cartesia
+cartesia[websockets]
 groq
 
 # --- Phase 2 ---
@@ -25,16 +25,17 @@ redis
 # (client-side: onnxruntime-web via npm, not pip — see client/src/vad)
 
 # --- Phase 6 ---
-# celery
+celery
 
 # --- Phase 7 ---
-# openai
+openai
+langchain-openai
 
 # --- Phase 8 (feature-flagged) ---
-# qdrant-client
-# mastra-sdk        # placeholder name — confirm actual package at Phase 8
-# enkrypt-sdk        # placeholder name — confirm actual package at Phase 8
+qdrant-client
+mastra-sdk        # placeholder name — confirm actual package at Phase 8
+enkrypt-sdk        # placeholder name — confirm actual package at Phase 8
 
 # --- Phase 9 ---
-# opentelemetry-sdk
-# locust             # load-testing-eval service
+opentelemetry-sdk
+locust             # load-testing-eval service

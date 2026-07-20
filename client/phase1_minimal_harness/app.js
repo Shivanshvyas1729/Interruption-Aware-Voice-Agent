@@ -679,6 +679,9 @@ let streamSocket = null;
 let audioContext = null;
 let audioStartTime = 0;
 let activeSources = [];
+let leftoverBytes = null;
+let playbackGeneration = 0; // Epoch counter — incremented on every cancellation to invalidate in-flight decodes
+let currentServerTurnId = 0; // Server turn_id of the most-recently active turn — used to validate tagged binary frames
 
 function connectWebSocketStream() {
   const wsUrl = `ws://${window.location.hostname || "localhost"}:${API_PORT}/stream`;
@@ -714,8 +717,17 @@ function connectWebSocketStream() {
       const msg = JSON.parse(event.data);
       console.log("[WS] Received string message:", msg.type);
       if (msg.type === "stop_audio") {
+        // Advance the expected server turn_id so any frames still in-flight
+        // for the cancelled turn are discarded at the binary validation step.
+        if (msg.turn_id !== undefined) {
+          currentServerTurnId = msg.turn_id;
+        }
         stopAllQueuedAudio();
       } else if (msg.type === "llm_response") {
+        // Sync the expected server turn_id once the LLM response arrives.
+        if (msg.turn_id !== undefined) {
+          currentServerTurnId = msg.turn_id;
+        }
         console.log("[WS] LLM response received:", msg.text);
         renderLogEvent({ event: "llm_response", detail: { text: msg.text } });
         if (agentResponseDiv) {
@@ -737,11 +749,23 @@ function connectWebSocketStream() {
         renderLogEvent({ event: "error", detail: { message: `Pipeline error: ${msg.detail}` } });
       }
     } else {
-      // Binary audio chunk
-      console.log("[WS] Received audio chunk, size:", event.data.size || "?");
-      renderLogEvent({ event: "audio_chunk_received", detail: { size: event.data.size } });
+      // Binary audio chunk — first 4 bytes are a little-endian uint32 turn_id tag
+      // written by PlaybackWorker before sending the frame.  Strip the tag,
+      // validate against currentServerTurnId, and discard stale frames.
       const arrayBuffer = await event.data.arrayBuffer();
-      decodeAndScheduleChunk(arrayBuffer);
+      if (arrayBuffer.byteLength < 4) return; // malformed / too short
+      const tagView = new DataView(arrayBuffer, 0, 4);
+      const serverTurnId = tagView.getUint32(0, /*littleEndian=*/true);
+      if (serverTurnId < currentServerTurnId) {
+        console.log("[WS] Discarding stale audio frame for turn", serverTurnId,
+                    "(current:", currentServerTurnId, ")");
+        return;
+      }
+      const pcmBuffer = arrayBuffer.slice(4); // strip the 4-byte tag
+      if (pcmBuffer.byteLength === 0) return; // terminal sentinel (empty payload), no audio
+      console.log("[WS] Received audio chunk, size:", pcmBuffer.byteLength, "turn:", serverTurnId);
+      renderLogEvent({ event: "audio_chunk_received", detail: { size: pcmBuffer.byteLength } });
+      decodeAndScheduleChunk(pcmBuffer);
     }
   };
   
@@ -767,6 +791,9 @@ async function decodeAndScheduleChunk(arrayBuffer) {
     console.warn("[Audio] No AudioContext available, skipping chunk");
     return;
   }
+  // Capture generation epoch before any async yield point
+  const myGeneration = playbackGeneration;
+
   // Resume if suspended (autoplay policy)
   if (audioContext.state === "suspended") {
     try {
@@ -774,10 +801,60 @@ async function decodeAndScheduleChunk(arrayBuffer) {
     } catch (e) {
       console.warn("[Audio] Could not resume AudioContext:", e);
     }
+    // Discard chunk if cancelled while suspended
+    if (playbackGeneration !== myGeneration) return;
   }
   try {
-    const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+    let combinedBuffer = arrayBuffer;
     
+    // Prepend leftover bytes from previous chunk if present
+    if (leftoverBytes) {
+      const tmp = new Uint8Array(leftoverBytes.length + arrayBuffer.byteLength);
+      tmp.set(leftoverBytes, 0);
+      tmp.set(new Uint8Array(arrayBuffer), leftoverBytes.length);
+      combinedBuffer = tmp.buffer;
+      leftoverBytes = null;
+    }
+    
+    // Check if we have an odd byte length; buffer the extra byte for next chunk
+    if (combinedBuffer.byteLength % 2 !== 0) {
+      leftoverBytes = new Uint8Array(combinedBuffer, combinedBuffer.byteLength - 1, 1);
+      combinedBuffer = combinedBuffer.slice(0, combinedBuffer.byteLength - 1);
+    }
+    
+    if (combinedBuffer.byteLength < 4) {
+      return; // Not enough bytes to decode or check format
+    }
+    
+    let audioBuffer;
+    
+    // Check if the chunk has a RIFF/WAV header (first 4 bytes: 0x52, 0x49, 0x46, 0x46)
+    const headerView = new Uint8Array(combinedBuffer, 0, 4);
+    const isWav = headerView[0] === 0x52 && // 'R'
+                  headerView[1] === 0x49 && // 'I'
+                  headerView[2] === 0x46 && // 'F'
+                  headerView[3] === 0x46;   // 'F'
+                  
+    if (isWav) {
+      // Decode using native decoder (WAV format)
+      audioBuffer = await audioContext.decodeAudioData(combinedBuffer);
+      // Discard chunk if cancelled while decodeAudioData was executing
+      if (playbackGeneration !== myGeneration) return;
+    } else {
+      // Manually parse raw pcm_s16le at 24000Hz (Cartesia WebSocket output format)
+      const intData = new Int16Array(combinedBuffer);
+      const floatData = new Float32Array(intData.length);
+      for (let i = 0; i < intData.length; i++) {
+        floatData[i] = intData[i] / 32768.0;
+      }
+      audioBuffer = audioContext.createBuffer(1, floatData.length, 24000);
+      audioBuffer.copyToChannel(floatData, 0);
+    }
+    
+    // Final generation check immediately before scheduling — guards against
+    // late in-flight WebSocket chunks that arrived after cancellation
+    if (playbackGeneration !== myGeneration) return;
+
     const source = audioContext.createBufferSource();
     source.buffer = audioBuffer;
     source.connect(audioContext.destination);
@@ -819,6 +896,9 @@ async function decodeAndScheduleChunk(arrayBuffer) {
 }
 
 function stopAllQueuedAudio() {
+  // Increment generation epoch — invalidates all pending async decodes and
+  // in-flight WebSocket chunks from the cancelled turn
+  playbackGeneration++;
   activeSources.forEach(source => {
     try {
       source.stop();
@@ -826,6 +906,7 @@ function stopAllQueuedAudio() {
   });
   const hadActive = activeSources.length > 0;
   activeSources = [];
+  leftoverBytes = null; // Clear any pending fragmented bytes
   audioStartTime = audioContext ? audioContext.currentTime : 0;
   updateUIState("connected", "Listening...");
   if (hadActive && window.dispatchTelemetryEvent) {

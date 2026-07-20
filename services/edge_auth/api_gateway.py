@@ -598,8 +598,12 @@ async def websocket_stream(websocket: WebSocket):
     await websocket.accept()
     logger.log("ws_connected", "system", "system", detail={})
     
+    from common.config import voice_settings
+    q_size = voice_settings.get("concurrency.websocket_queue_size", 100)
+    write_timeout = voice_settings.get("concurrency.websocket_write_timeout_s", 5.0)
+    
     session_id = None
-    audio_queue = asyncio.Queue()
+    audio_queue = asyncio.Queue(maxsize=q_size)
     active_tasks = []
     pipeline = None
     
@@ -618,16 +622,23 @@ async def websocket_stream(websocket: WebSocket):
             while True:
                 chunk = await audio_queue.get()
                 if isinstance(chunk, dict):
-                    await websocket.send_json(chunk)
+                    await asyncio.wait_for(websocket.send_json(chunk), timeout=write_timeout)
                 else:
-                    await websocket.send_bytes(chunk)
+                    await asyncio.wait_for(websocket.send_bytes(chunk), timeout=write_timeout)
                 audio_queue.task_done()
         except asyncio.CancelledError:
             logger.log("ws_send_loop_cancelled", session_id or "?", "system", detail={})
+        except asyncio.TimeoutError:
+            logger.log_error("ws_send_timeout", session_id or "?", "system", Exception("WebSocket send timed out"))
+            try:
+                await websocket.close()
+            except Exception:
+                pass
         except Exception as e:
             logger.log_error("ws_send_error", session_id or "?", "system", e)
     
     send_task = asyncio.create_task(send_audio_loop())
+
     active_tasks.append(send_task)
     
     try:
@@ -670,8 +681,13 @@ async def websocket_stream(websocket: WebSocket):
                                 audio_queue.task_done()
                             except asyncio.QueueEmpty:
                                 break
-                        await websocket.send_json({"type": "stop_audio"})
+                        # Include current turn_id so the client's tag-validation
+                        # guard (currentServerTurnId) can reject any in-flight
+                        # stale binary frames arriving after this cancel.
+                        current_turn = pipeline.fsm.get_session_turn_id(session_id)
+                        await websocket.send_json({"type": "stop_audio", "turn_id": current_turn})
                         logger.log("cancel_handled", session_id, "system", detail={"reason": "user_cancel"})
+
                     except Exception as e:
                         logger.log_error("cancel_failed", session_id, "system", e)
                         
@@ -683,9 +699,10 @@ async def websocket_stream(websocket: WebSocket):
         if session_id:
             try:
                 from services.orchestrator.cancellation_manager import cancellation_manager
-                cancellation_manager.reset_session(session_id)
+                # Trigger cancellation to immediately stop LLM and TTS tasks in flight
+                cancellation_manager.cancel_session(session_id, "websocket_disconnect")
                 token = get_cancel_token(session_id)
-                token.reset()
+                token.cancel("websocket_disconnect")
                 if pipeline:
                     pipeline.unregister_playback_client(session_id)
             except Exception as e:
@@ -698,6 +715,14 @@ async def websocket_stream(websocket: WebSocket):
                 pass
             except Exception as e:
                 logger.log_error("task_cancel_failed", session_id or "?", "system", e)
+        # Drain any residual audio chunks left in the gateway queue after
+        # send_audio_loop has exited, to release memory immediately.
+        while not audio_queue.empty():
+            try:
+                audio_queue.get_nowait()
+                audio_queue.task_done()
+            except asyncio.QueueEmpty:
+                break
 
 @app.websocket("/ws/telemetry")
 async def websocket_telemetry(websocket: WebSocket):
@@ -836,7 +861,7 @@ async def telemetry_background_loop():
             worker_states = {}
             if pipeline:
                 for stage in [pipeline.stt, pipeline.llm, pipeline.tts, pipeline.playback,
-                              pipeline.fsm, pipeline.interrupt, pipeline.canceller, pipeline.metrics]:
+                              pipeline.fsm, pipeline.interrupt, pipeline.metrics]:
                     task_active = pipeline._started and stage._task is not None and not stage._task.done()
                     worker_states[stage.name] = "active" if task_active else "inactive"
                     # Track queue length for queue_update

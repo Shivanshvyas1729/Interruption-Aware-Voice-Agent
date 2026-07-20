@@ -5,8 +5,10 @@
 # =============================================================================
 
 llm:
-  system_prompt: "You are a helpful, concise voice assistant."
-  max_tokens: 256
+  system_prompt: "You are a helpful voice assistant. Keep responses concise and conversational — 2 to 3 sentences maximum. Do not use lists or bullet points."
+  # Token budget: 150 = ~2-3 sentences. Prevents runaway generation and wasted TTS API calls.
+  max_tokens: 150
+  # Sentence cap: stop dispatching to TTS after this many sentences, even if LLM keeps streaming.
   max_sentences: 3
   max_response_seconds: 15
   first_token_timeout_ms: 5000
@@ -223,3 +225,10 @@ volume:
 
 fallback_stt_latency: 180
 sentence_streaming_delay_s: 0.08
+
+concurrency:
+  websocket_queue_size: 100
+  websocket_write_timeout_s: 5.0
+  llm_max_workers: 100
+  tts_max_workers: 200
+

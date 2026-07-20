@@ -63,6 +63,8 @@ def call_with_failover(session_id: str, turn_id: str, messages: list[dict]) -> s
     
     # 1. Check Circuit Breaker
     if primary_circuit_breaker.is_open():
+        from services.edge_auth.telemetry_bus import telemetry_bus
+        telemetry_bus.push("llm_failover_triggered", {"reason": "Circuit breaker is open"}, session_id, turn_id)
         logger.log(
             event_name="llm_failover_triggered",
             session_id=session_id,
@@ -98,6 +100,8 @@ def call_with_failover(session_id: str, turn_id: str, messages: list[dict]) -> s
             
         # Record failure and trigger failover
         primary_circuit_breaker.record_failure(session_id, turn_id)
+        from services.edge_auth.telemetry_bus import telemetry_bus
+        telemetry_bus.push("llm_failover_triggered", {"reason": err_msg}, session_id, turn_id)
         logger.log(
             event_name="llm_failover_triggered",
             session_id=session_id,

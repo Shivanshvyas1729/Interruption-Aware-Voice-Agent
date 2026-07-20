@@ -74,8 +74,14 @@ def test_llm_worker_failover_to_openai():
         mock_chunk = MagicMock()
         mock_choice = MagicMock()
         mock_choice.delta.content = "OpenAI response"
+        mock_choice.message.content = "OpenAI response"
         mock_chunk.choices = [mock_choice]
-        mock_openai_instance.chat.completions.create.return_value = [mock_chunk]
+        
+        # Support both stream=False (returns object with choices) and stream=True (iterable list of chunks)
+        mock_response = MagicMock()
+        mock_response.choices = [mock_choice]
+        mock_response.__iter__.return_value = [mock_chunk]
+        mock_openai_instance.chat.completions.create.return_value = mock_response
         
         # Configure our mocked module's class return value
         mock_openai.OpenAI.return_value = mock_openai_instance

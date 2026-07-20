@@ -135,3 +135,215 @@ def call_primary(session_id: str, turn_id: str, messages: list[dict]) -> str:
     cache_client.store(session_id, query, response, system_prompt, model_name, messages)
     
     return response
+
+
+_SENTENCE_END_RE = None  # compiled lazily once at module level
+
+
+def _get_sentence_re():
+    """Return the compiled sentence-boundary regex, building it on first call."""
+    import re
+    global _SENTENCE_END_RE
+    if _SENTENCE_END_RE is None:
+        # Split after .  !  ?  or newline, only when followed by whitespace.
+        # Edge-case punt: abbreviations/decimals ("Dr.", "3.14") are treated as
+        # sentence ends. This is documented and acceptable for a voice assistant.
+        _SENTENCE_END_RE = re.compile(r'(?<=[.!?\n])\s+')
+    return _SENTENCE_END_RE
+
+
+def call_primary_streaming(
+    session_id: str,
+    turn_id: str,
+    messages: list[dict],
+    sentence_callback,
+    max_tokens: int | None = None,
+    system_prompt: str | None = None,
+) -> str:
+    """
+    Stream LLM tokens from Groq and call sentence_callback(text: str) at each
+    sentence boundary.  Returns the full accumulated text.
+
+    Boundary rule: split on '.', '!', '?' or newline followed by whitespace.
+    Abbreviations/decimals that contain '.' are treated as boundaries — this is
+    an explicit design decision; full NLP tokenisation is out of scope.
+
+    Special paths (no live streaming):
+    - Cache hit  : sentence_callback called once with full cached text.
+    - Mock / test: sentence_callback called once with mock text.
+    - OpenAI fallback (circuit breaker open or Groq error): sentence_callback
+      called once with the full buffered reply.
+    """
+    from services.orchestrator import cache_client, failover
+    from services.orchestrator.cancellation_manager import cancellation_manager
+
+    settings = get_settings()
+    query = messages[-1]["content"] if messages else ""
+    if system_prompt is None:
+        system_prompt = vc_get("llm.system_prompt", "You are a helpful, concise voice assistant.")
+    model_name = settings.groq_model or "groq-default"
+
+    # ------------------------------------------------------------------ #
+    # 1. Semantic cache hit — emit as a single sentence, skip generation   #
+    # ------------------------------------------------------------------ #
+    cached = cache_client.lookup(session_id, turn_id, query, system_prompt, model_name, messages)
+    if cached is not None:
+        if cached and not cancellation_manager.is_cancelled(session_id):
+            sentence_callback(cached)
+        return cached
+
+    api_key = settings.groq_api_key
+
+    # ------------------------------------------------------------------ #
+    # 2. Mock / test path                                                  #
+    # ------------------------------------------------------------------ #
+    if not api_key or api_key == "dummy_val" or settings.env == "test":
+        full_text = call_primary_direct(session_id, turn_id, messages)
+        from services.orchestrator.async_pipeline import get_current_turn
+        if full_text and not cancellation_manager.is_cancelled(session_id) and int(turn_id) >= get_current_turn(session_id):
+            sentence_callback(full_text)
+        cache_client.store(session_id, query, full_text, system_prompt, model_name, messages)
+        return full_text
+
+    # ------------------------------------------------------------------ #
+    # 3. Circuit breaker open — OpenAI fallback (buffered, single sentence)#
+    # ------------------------------------------------------------------ #
+    if failover.primary_circuit_breaker.is_open():
+        logger.log(
+            event_name="llm_failover_triggered",
+            session_id=session_id,
+            turn_id=turn_id,
+            detail={"reason": "circuit_breaker_open (streaming path)"},
+        )
+        full_text = failover._call_fallback(session_id, turn_id, messages)
+        from services.orchestrator.async_pipeline import get_current_turn
+        if full_text and not cancellation_manager.is_cancelled(session_id) and int(turn_id) >= get_current_turn(session_id):
+            sentence_callback(full_text)
+        cache_client.store(session_id, query, full_text, system_prompt, model_name, messages)
+        return full_text
+
+    # ------------------------------------------------------------------ #
+    # 4. Live Groq streaming with sentence-boundary splitting              #
+    # ------------------------------------------------------------------ #
+    sentence_re = _get_sentence_re()
+
+    budget = get_token_budget(session_id)
+    context_history = prepare_context(messages, session_id)
+    payload = [{"role": "system", "content": system_prompt}] + context_history
+
+    prompt_tokens = estimate_tokens(system_prompt) + sum(
+        estimate_tokens(m.get("content", "")) for m in context_history
+    )
+    budget.record_prompt(prompt_tokens)
+
+    from groq import Groq
+    client = Groq(api_key=api_key)
+    start_time = time.time()
+
+    try:
+        final_max_tokens = max_tokens if max_tokens is not None else vc_get("llm.max_tokens", 256)
+        chat_completion = client.chat.completions.create(
+            messages=payload,
+            model=settings.groq_model,
+            stream=True,
+            max_tokens=final_max_tokens,
+        )
+    except Exception as connect_err:
+        # Groq connect failed — fall back to OpenAI synchronously
+        failover.primary_circuit_breaker.record_failure(session_id, turn_id)
+        from services.edge_auth.telemetry_bus import telemetry_bus
+        telemetry_bus.push("llm_failover_triggered", {"reason": str(connect_err)}, session_id, turn_id)
+        logger.log(
+            event_name="llm_failover_triggered",
+            session_id=session_id,
+            turn_id=turn_id,
+            detail={"reason": f"groq_connect_failed: {connect_err}"},
+        )
+        full_text = failover._call_fallback(session_id, turn_id, messages)
+        from services.orchestrator.async_pipeline import get_current_turn
+        if full_text and not cancellation_manager.is_cancelled(session_id) and int(turn_id) >= get_current_turn(session_id):
+            sentence_callback(full_text)
+        cache_client.store(session_id, query, full_text, system_prompt, model_name, messages)
+        return full_text
+
+    collected_chunks: list[str] = []
+    sentence_buffer: list[str] = []
+    first_token_fired = False
+
+    try:
+        for chunk in chat_completion:
+            from services.orchestrator.async_pipeline import get_current_turn
+            if cancellation_manager.is_cancelled(session_id) or int(turn_id) < get_current_turn(session_id):
+                logger.log(
+                    event_name="llm_cancelled",
+                    session_id=session_id,
+                    turn_id=turn_id,
+                    detail={"msg": "LLM token stream aborted mid-turn."},
+                )
+                return "".join(collected_chunks)
+
+            delta = chunk.choices[0].delta.content or ""
+            if not delta:
+                continue
+
+            collected_chunks.append(delta)
+            sentence_buffer.append(delta)
+
+            if not first_token_fired:
+                first_token_fired = True
+                latency_ms = int((time.time() - start_time) * 1000)
+                logger.log(
+                    event_name="llm_first_token",
+                    session_id=session_id,
+                    turn_id=turn_id,
+                    latency_ms=latency_ms,
+                    detail={},
+                )
+
+            # Flush complete sentences found in the accumulated buffer.
+            buffered = "".join(sentence_buffer)
+            parts = sentence_re.split(buffered)
+            if len(parts) > 1:
+                for sentence in parts[:-1]:
+                    sentence = sentence.strip()
+                    if not sentence:
+                        continue
+                    # Re-check cancellation immediately before each dispatch
+                    from services.orchestrator.async_pipeline import get_current_turn
+                    if cancellation_manager.is_cancelled(session_id) or int(turn_id) < get_current_turn(session_id):
+                        return "".join(collected_chunks)
+                    sentence_callback(sentence)
+                sentence_buffer = [parts[-1]]
+
+    except Exception:
+        failover.primary_circuit_breaker.record_failure(session_id, turn_id)
+        raise
+
+    failover.primary_circuit_breaker.record_success()
+
+    # Flush any remaining buffer as the last sentence
+    remaining = "".join(sentence_buffer).strip()
+    from services.orchestrator.async_pipeline import get_current_turn
+    if remaining and not cancellation_manager.is_cancelled(session_id) and int(turn_id) >= get_current_turn(session_id):
+        sentence_callback(remaining)
+
+    full_text = "".join(collected_chunks)
+    total_latency_ms = int((time.time() - start_time) * 1000)
+    completion_tok = estimate_tokens(full_text)
+    budget = get_token_budget(session_id)
+    budget.record_completion(completion_tok)
+    logger.log(
+        event_name="llm_complete",
+        session_id=session_id,
+        turn_id=turn_id,
+        latency_ms=total_latency_ms,
+        detail={
+            "provider": "groq",
+            "prompt_tokens": budget.prompt_tokens,
+            "completion_tokens": completion_tok,
+            "budget_pct": budget.usage_pct,
+        },
+    )
+
+    cache_client.store(session_id, query, full_text, system_prompt, model_name, messages)
+    return full_text

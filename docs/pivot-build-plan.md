@@ -478,3 +478,10 @@ Every service logs structured JSON lines with at minimum:
 
 - Exact mid-tool-call interruption policy per type (Phase 6) — needs a decision, not just an implementation; write it into this doc once chosen.
 - Whether Mastra is actually needed given Phase 6's hand-rolled FSM, or only added if a concrete gap appears (keep the "minimal footprint" PRD requirement honest).
+
+---
+
+### Correctness Fix: FSMWorker Queue Message-Loss Resolved
+- **Problem**: In `services/orchestrator/async_pipeline.py`, the previous `FSMWorker.run()` implementation created new tasks to read from input queues at every loop iteration. Uncompleted tasks became orphaned consumers, competing for inputs and causing `LLMResponse`, `TranscriptMessage`, and `CancelCommand` items to be silently swallowed (lost).
+- **Fix**: Replaced the recreation pattern with three long-lived consumer tasks that push items into a single internal queue (`self._funnel`), resolving the message-loss race condition. Additionally, re-instantiate `asyncio.Queue` objects inside `VoicePipeline.start()` to correctly bind to the active event loop, preventing loop mismatches across test runs and environments.
+
