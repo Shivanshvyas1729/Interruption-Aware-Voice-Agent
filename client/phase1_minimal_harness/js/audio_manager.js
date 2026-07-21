@@ -60,6 +60,18 @@ window.connectWebSocketStream = function() {
         if (tokensEl) tokensEl.textContent = msg.tokens || "-";
         if (latencyEl) latencyEl.textContent = (msg.latency_ms ? msg.latency_ms + "ms" : "-");
         
+        // Update waterfall offsets for LLM stage in WebSocket streaming path
+        if (window.speechStartTime > 0) {
+          const nowOff = Math.round(performance.now() - window.speechStartTime);
+          // LLM first token ≈ orchestration start + server LLM latency
+          if (msg.latency_ms) {
+            const llmFirstTokenOff = (window.timeOrchStart || 0) + Math.round(msg.latency_ms * 0.3);
+            window.updateWaterfallEl("wf-llm-first-token", `+${llmFirstTokenOff}ms`);
+          }
+          // LLM complete = now (we just received the full response text)
+          window.updateWaterfallEl("wf-llm-complete", `+${nowOff}ms`);
+        }
+        
         console.log("[WS] Updated Agent Response Panel with LLM response");
         window.renderLogEvent({ event: "agent_panel_updated", detail: { text: msg.text.slice(0, 60) } });
       } else if (msg.type === "error") {
@@ -84,6 +96,17 @@ window.connectWebSocketStream = function() {
       if (pcmBuffer.byteLength === 0) return;
       console.log("[WS] Received audio chunk, size:", pcmBuffer.byteLength, "turn:", serverTurnId);
       window.renderLogEvent({ event: "audio_chunk_received", detail: { size: pcmBuffer.byteLength } });
+      
+      // Update TTS first audio waterfall on the very first audio chunk of a turn
+      if (!window._ttsFirstAudioFired) {
+        window._ttsFirstAudioFired = true;
+        if (window.speechStartTime > 0) {
+          const ttsOff = Math.round(performance.now() - window.speechStartTime);
+          const sttOff = Math.round((window.timeOrchStart || 0));
+          const validTtsOff = Math.max(sttOff + 50, ttsOff);
+          window.updateWaterfallEl("wf-tts-first-audio", `+${validTtsOff}ms`);
+        }
+      }
       window.decodeAndScheduleChunk(pcmBuffer);
     }
   };
@@ -180,6 +203,11 @@ window.decodeAndScheduleChunk = async function(arrayBuffer) {
     if (window.dispatchTelemetryEvent && window.activeSources.length === 1) {
       window.dispatchTelemetryEvent("playback_start", {});
       window.renderLogEvent({ event: "playback_started", detail: { source: "websocket_chunk" } });
+      // Update playback start waterfall
+      if (window.speechStartTime > 0) {
+        const pbOff = Math.round(performance.now() - window.speechStartTime);
+        window.updateWaterfallEl("wf-playback-start", `+${pbOff}ms`);
+      }
     }
     
     source.onended = () => {
@@ -188,6 +216,12 @@ window.decodeAndScheduleChunk = async function(arrayBuffer) {
         console.log("[Audio] All audio chunks played");
         window.renderLogEvent({ event: "playback_completed", detail: { source: "websocket_chunk" } });
         window.updateUIState("connected", "Listening...");
+        // Update playback end waterfall
+        if (window.speechStartTime > 0) {
+          const pbEndOff = Math.round(performance.now() - window.speechStartTime);
+          window.updateWaterfallEl("wf-playback-end", `+${pbEndOff}ms`);
+        }
+        window._turnInProgress = false;
         if (window.dispatchTelemetryEvent) {
           window.dispatchTelemetryEvent("playback_end", {});
         }
@@ -270,6 +304,7 @@ window.playBase64Audio = function(base64Data) {
 window.stopAllQueuedAudio = function() {
   window.playbackGeneration++;
   window.awaitingNewTurn = true;
+  window._ttsFirstAudioFired = false;  // Reset so next turn's first chunk triggers waterfall
   
   if (window.currentAudio) {
     try {

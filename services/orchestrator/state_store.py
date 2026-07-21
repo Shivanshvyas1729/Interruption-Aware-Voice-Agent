@@ -169,6 +169,7 @@ def save_turn(session_id: str, turn_id: str, role: str, content: str):
         key = f"session:{session_id}:history"
         try:
             client.rpush(key, json.dumps(new_message))
+            client.expire(key, 86400)  # Expire after 24h to avoid leaks on Redis Cloud
             logger.log(
                 event_name="state_update",
                 session_id=session_id,

@@ -242,8 +242,14 @@ class FSMWorker(PipelineStage):
 
             state.spoken_words = []
 
-            if decision in ("ABORT_ALL", "IGNORE_CONTINUE"):
+            if decision == "IGNORE_CONTINUE":
+                # Backchannel or noise — keep the current response playing,
+                # do NOT process the new transcript.
                 return
+            # ABORT_ALL and CANCEL_AND_RESTART: both abort the old response
+            # and fall through to process the user's new query. Previously
+            # ABORT_ALL also dropped the new query, which silently ate the
+            # user's interruption.
 
         # Reset spoken state for the new turn
         state.spoken_words = []
@@ -423,6 +429,28 @@ class FSMWorker(PipelineStage):
         tok.cancel(msg.reason)
         from services.orchestrator.cancellation_manager import cancellation_manager
         cancellation_manager.cancel_session(msg.session_id, msg.reason)
+
+        # Preemptively kill in-flight LLM and TTS tasks so they don't
+        # keep running until the next cooperative cancellation check.
+        from .voice_pipeline import get_pipeline
+        pipeline = get_pipeline()
+        if pipeline:
+            pipeline.cancel_inflight_tasks(msg.session_id)
+
+        # Drain stale items from TTS input queue for this session so
+        # already-queued sentences from the cancelled turn don't get
+        # synthesised after the cancel takes effect.
+        for q in [self.tts_input, self.llm_input]:
+            drained = []
+            while not q.empty():
+                try:
+                    item = q.get_nowait()
+                    if getattr(item, 'session_id', None) != msg.session_id:
+                        drained.append(item)
+                except Exception:
+                    break
+            for item in drained:
+                q.put_nowait(item)
 
         telemetry_bus.push(
             "cancellation", {"reason": msg.reason}, msg.session_id, "system"

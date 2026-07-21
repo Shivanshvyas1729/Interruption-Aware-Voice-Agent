@@ -64,6 +64,9 @@ document.addEventListener("DOMContentLoaded", async () => {
         window.audioContext.resume().then(() => console.log("[Audio] AudioContext resumed"));
       }
       
+      if (window.initializeMicTracker) {
+        window.initializeMicTracker();
+      }
       window.startSpeechRecognition();
       window.connectWebSocketStream();
       
@@ -135,6 +138,11 @@ document.addEventListener("DOMContentLoaded", async () => {
         if (agentResponseDiv) agentResponseDiv.textContent = "Waiting for query...";
         window.updateUIState("connected", "Listening...");
         window.renderLogEvent({ event: "system", detail: "Session memory reset successfully." });
+        
+        // Preserve session metrics history on session memory reset so reports include all queries
+        if (window.sessionMetricsHistory) {
+          window.sessionMetricsHistory.system_snapshots = [];
+        }
       } catch (e) {
         console.error("[Reset] Reset session failed:", e);
       }

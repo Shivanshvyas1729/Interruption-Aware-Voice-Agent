@@ -103,6 +103,9 @@ window.leaveSession = function() {
     window.room = null;
   }
   window.stopAllQueuedAudio();
+  if (window.stopMicEnergyTracker) {
+    window.stopMicEnergyTracker();
+  }
   window.updateUIState("disconnected", "Disconnected");
   
   const joinBtn = document.getElementById("join-btn");
@@ -112,4 +115,9 @@ window.leaveSession = function() {
     joinBtn.style.background = "linear-gradient(135deg, #3b82f6, #8b5cf6)";
   }
   window.renderLogEvent({ event: "session_ended", detail: { session_id: window.sessionId } });
+
+  // Preserve session metrics history across disconnects so report downloads include all turns
+  if (window.sessionMetricsHistory) {
+    window.sessionMetricsHistory.system_snapshots = [];
+  }
 };

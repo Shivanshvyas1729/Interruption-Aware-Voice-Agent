@@ -141,6 +141,20 @@ Every component must log structured JSON lines containing:
 
 ---
 
+## 💾 State Storage & Redis Cloud Integration
+
+### Purpose & Architecture
+Redis serves as the system's high-performance memory store, supporting persistent conversation context, session isolation, and asynchronous task scheduling:
+* **Persistent Memory**: Retains conversation history (transcripts) between user and assistant to maintain context across turns.
+* **Session Isolation**: Separates conversational histories by unique session ID to support multi-user operations securely.
+* **Distributed Task Broker**: Acts as the Celery broker for tool and worker operations, decoupling long-running executions from the low-latency voice pipeline.
+* **Resource Optimization**: Implements an automatic 24-hour Time-to-Live (TTL) policy (`client.expire(key, 86400)`) on session histories to prevent storage leaks and minimize memory usage on Redis Cloud.
+
+### Fallback Behavior
+If Redis is not configured or disabled (`settings.redis_url` is not set or set to `dummy_val`), the system automatically falls back to a thread-safe in-memory cache (`_memory_db`), ensuring high availability and seamless developer onboarding.
+
+---
+
 ## 🏛️ Key Decisions & Audits
 
 1. **Port Direction Audit:** Rectified 22 out of 35 direction-reversed or generic-mapped ports in the legacy schema. Validated continuously in CI via `scripts/validate_architecture.py`.

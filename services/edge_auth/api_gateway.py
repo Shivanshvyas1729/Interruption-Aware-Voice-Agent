@@ -752,6 +752,23 @@ async def websocket_stream(websocket: WebSocket):
             except asyncio.QueueEmpty:
                 break
 
+        # Shut down the entire pipeline and server process on leave/disconnect to save all resources and tokens
+        try:
+            logger.log("ws_shutdown_trigger", session_id or "system", "system", detail={"msg": "Shutting down pipeline and releasing resources due to disconnect."})
+            
+            # Clear all in-memory semantic cache entries to save memory and avoid residual caches
+            try:
+                from services.orchestrator.cache_client import cache_manager
+                cache_manager.store.store.clear()
+                logger.log("cache_cleared", session_id or "system", "system", detail={"msg": "Semantic cache cleared successfully."})
+            except Exception as e:
+                logger.log_error("cache_clear_failed", session_id or "system", "system", e)
+
+            from services.orchestrator.async_pipeline import shutdown_pipeline
+            await shutdown_pipeline()
+        except Exception as e:
+            logger.log_error("ws_shutdown_failed", session_id or "system", "system", e)
+
 @app.websocket("/ws/telemetry")
 async def websocket_telemetry(websocket: WebSocket):
     await websocket.accept()

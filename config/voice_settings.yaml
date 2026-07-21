@@ -6,8 +6,8 @@
 
 llm:
   system_prompt: "You are a low-latency real-time voice assistant. Keep responses concise and conversational. Put the most important information/direct answer in the very first sentence. Structure your response as a progressive sequence of short, self-contained sentences that are independently speakable. Do not use lists, bullet points, or reference future sentences."
-  # Token budget: 150 = ~2-3 sentences. Prevents runaway generation and wasted TTS API calls.
-  max_tokens: 150
+  # Token budget: 100 = ~2-3 sentences. Prevents runaway generation and wasted TTS API calls.
+  max_tokens: 100
   # Sentence cap: stop dispatching to TTS after this many sentences, even if LLM keeps streaming.
   max_sentences: 3
   max_response_seconds: 15
@@ -22,7 +22,7 @@ tts:
     container: "wav"
     encoding: "pcm_s16le"
     sample_rate: 24000
-  chunk_size: 1600
+  chunk_size: 864
   mock_sleep_ms: 50
   mock_chunk_sleep_ms: 10
   mock_chunk_silence_bytes: 16000

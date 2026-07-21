@@ -1,11 +1,32 @@
 // ---------------------------------------------------------------------------
 // STT Manager - SpeechRecognition setup, VAD detection, verbal stop keywords,
 // and sending transcripts via WebSocket or REST fallback.
+//
+// Interim-result debounce strategy:
+//   interimResults = true so we see partial text in real time.
+//   When interim text stabilises (unchanged for DEBOUNCE_MS), we fire it as
+//   final immediately — cutting perceived STT latency from ~7s to ~600ms.
+//   If the browser's own isFinal arrives first, we use that instead and
+//   cancel the debounce timer.
 // ---------------------------------------------------------------------------
 
 window.sttEnabled = true;
 
+// Debounce tunable — how long interim text must stay stable before we send it
+const STT_DEBOUNCE_MS = 600;
+
+// Per-recognition state for the debounce mechanism
+window._sttDebounceTimer = null;
+window._sttLastInterim = "";
+window._sttAlreadySentForUtterance = false;
+
 window.notifyBargeIn = async function() {
+  // Immediately increment the client-side turn ID so any in-flight audio
+  // chunks from the old turn are rejected locally without waiting for the
+  // server's stop_audio message.
+  window.currentServerTurnId++;
+  window.awaitingNewTurn = true;
+
   window.stopAllQueuedAudio();
   if (window.streamSocket && window.streamSocket.readyState === WebSocket.OPEN) {
     window.streamSocket.send(JSON.stringify({
@@ -42,7 +63,7 @@ window.startSpeechRecognition = function() {
   
   window.recognition = new SpeechRecognition();
   window.recognition.continuous = true;
-  window.recognition.interimResults = false;
+  window.recognition.interimResults = true;   // ← KEY CHANGE: see interim results
   window.recognition.lang = window.VOICE_CONFIG.stt_language || 'en-US';
   
   window.recognition.onstart = () => {
@@ -54,6 +75,8 @@ window.startSpeechRecognition = function() {
   window.recognition.onspeechstart = () => {
     const interruptStart = performance.now();
     window.speechStartTime = performance.now();
+    window._sttAlreadySentForUtterance = false;
+    window._sttLastInterim = "";
     console.log("[STT] Speech detected (VAD start)");
     window.renderLogEvent({ event: "vad_start", detail: { msg: "Speech detected" } });
     
@@ -101,10 +124,79 @@ window.startSpeechRecognition = function() {
     }
   };
   
+  // -----------------------------------------------------------------------
+  // Core result handler — processes both interim and final results
+  // -----------------------------------------------------------------------
   window.recognition.onresult = async (event) => {
+    // If starting a fresh speech turn, reset turn timing and waterfall elements
+    if (!window._turnInProgress) {
+      window._turnInProgress = true;
+      window.currentTurnIndex = (window.currentTurnIndex || 0) + 1;
+      window.speechStartTime = performance.now();
+      window._sttAlreadySentForUtterance = false;
+      window._ttsFirstAudioFired = false;
+      window._playbackStartFired = false;
+      window._turnRecorded = false;
+      if (window.clearWaterfall) window.clearWaterfall();
+      if (window.updateWaterfallEl) window.updateWaterfallEl("wf-vad-start", "+0ms");
+    }
+
+    let interimText = "";
+    let finalText = "";
+
+    for (let i = event.resultIndex; i < event.results.length; ++i) {
+      const res = event.results[i];
+      if (res.isFinal) {
+        finalText += res[0].transcript;
+      } else {
+        interimText += res[0].transcript;
+      }
+    }
+
+    const userTranscriptDiv = document.getElementById("user-transcript");
+
+    // Render interim text smoothly for immediate visual feedback without jitter
+    if (interimText && !finalText) {
+      window._sttLastInterim = interimText.trim();
+      if (userTranscriptDiv) {
+        userTranscriptDiv.innerHTML = `<span style="opacity: 0.7; font-style: italic;">${window._sttLastInterim}...</span>`;
+      }
+
+      // Safety timeout: if browser is slow to finalize after speech stops (1200ms pause), dispatch interim
+      if (window._sttDebounceTimer) clearTimeout(window._sttDebounceTimer);
+      window._sttDebounceTimer = setTimeout(() => {
+        if (!window._sttAlreadySentForUtterance && window._sttLastInterim) {
+          console.log(`[STT] Speech pause detected — dispatching stabilized transcript: "${window._sttLastInterim}"`);
+          window._sttAlreadySentForUtterance = true;
+          _dispatchTranscript(window._sttLastInterim);
+        }
+      }, 1200);
+
+      return;
+    }
+
+    if (finalText.trim()) {
+      if (window._sttDebounceTimer) {
+        clearTimeout(window._sttDebounceTimer);
+        window._sttDebounceTimer = null;
+      }
+
+      if (window._sttAlreadySentForUtterance) {
+        console.log("[STT] Skipping browser isFinal — utterance already dispatched.");
+        window._sttAlreadySentForUtterance = false;
+        return;
+      }
+
+      window._sttAlreadySentForUtterance = false;
+      _dispatchTranscript(finalText.trim());
+    }
+  };
+  
+  // -----------------------------------------------------------------------
+  // _dispatchTranscript — shared logic for sending final text to pipeline
+  // -----------------------------------------------------------------------
+  async function _dispatchTranscript(transcript) {
     const sttEndTime = performance.now();
-    const transcript = event.results[event.results.length - 1][0].transcript.trim();
-    if (!transcript) return;
     
     const lowerTranscript = transcript.toLowerCase();
     const explicitStopKeywords = ["stop", "wait stop", "stop now", "shut up", "quiet", "cancel", "stop speaking", "pause", "wait stop now"];
@@ -208,7 +300,7 @@ window.startSpeechRecognition = function() {
       window.renderLogEvent({ event: "error", detail: { message: `Voice processing failed: ${err.message}` } });
       window.updateUIState("connected", "Listening...");
     }
-  };
+  }
   
   window.recognition.onerror = (e) => {
     if (e.error !== 'no-speech' && e.error !== 'aborted') {
@@ -221,6 +313,11 @@ window.startSpeechRecognition = function() {
   
   window.recognition.onend = () => {
     console.log("[STT] Recognition ended. sessionActive:", window.sessionActive, "sttEnabled:", window.sttEnabled);
+    // Clear any pending debounce on recognition end
+    if (window._sttDebounceTimer) {
+      clearTimeout(window._sttDebounceTimer);
+      window._sttDebounceTimer = null;
+    }
     if (window.sttEnabled && window.sessionActive) {
       try {
         window.recognition.start();

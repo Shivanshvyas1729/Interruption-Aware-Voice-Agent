@@ -14,6 +14,7 @@ window.updateWaterfallEl = function(id, text) {
 };
 
 window.renderLogEvent = function(logData) {
+  if (window.logsPaused) return;
   const logPanel = document.getElementById("log-panel");
   if (!logPanel) return;
   const entry = document.createElement("div");
@@ -339,6 +340,39 @@ window.pollTelemetryData = async function() {
       updateService("orch", data.services.orchestrator);
       updateService("media", data.services.media_gateway);
     }
+
+    // Push system metrics snapshot for the session metrics download
+    if (window.sessionMetricsHistory) {
+      const getSafeText = (id) => {
+        const el = document.getElementById(id);
+        return el ? el.textContent : "-";
+      };
+      
+      window.sessionMetricsHistory.system_snapshots.push({
+        timestamp: new Date().toISOString(),
+        server_resources: {
+          cpu: (data.resources && data.resources.cpu !== undefined) ? `${data.resources.cpu}%` : "-",
+          ram: (data.resources && data.resources.ram !== undefined) ? `${data.resources.ram} MB` : "-",
+          queue_length: getSafeText("live-queue-length"),
+          network_rtt: getSafeText("live-network-rtt")
+        },
+        webrtc: {
+          jitter: getSafeText("webrtc-jitter"),
+          packet_loss: getSafeText("webrtc-loss"),
+          bitrate: getSafeText("webrtc-bitrate")
+        },
+        tokens: {
+          prompt: (data.tokens && data.tokens.prompt_tokens !== undefined) ? data.tokens.prompt_tokens : "-",
+          completion: (data.tokens && data.tokens.completion_tokens !== undefined) ? data.tokens.completion_tokens : "-",
+          cost: (data.tokens && data.tokens.cost !== undefined) ? `$${data.tokens.cost.toFixed(4)}` : "-"
+        },
+        client_diagnostics: {
+          dom_nodes: getSafeText("browser-dom"),
+          js_heap: getSafeText("browser-heap"),
+          fps: getSafeText("browser-fps")
+        }
+      });
+    }
     
     const thresholds = window.getThresholds();
     if (data.llm) window.updateRow("metric-row-llm", data.llm, thresholds.llm || 800);
@@ -419,3 +453,112 @@ setInterval(() => {
   const heap = mem ? (mem.usedJSHeapSize / (1024 * 1024)).toFixed(1) : "-";
   if (heapEl) heapEl.textContent = heap;
 }, 1000);
+
+window.recordTurnMetrics = function(isCancelled = false, reason = "") {
+  if (!window.sessionMetricsHistory) return;
+
+  const currentTurnIdx = window.currentTurnIndex || 1;
+  // Deduplication guard: do not record the same turn index twice
+  if (window.lastRecordedTurnId === currentTurnIdx && !isCancelled) {
+    console.log("[Metrics] Skipping duplicate turn recording for turn", currentTurnIdx);
+    return;
+  }
+  window.lastRecordedTurnId = currentTurnIdx;
+  const getVal = (id) => {
+    const el = document.getElementById(id);
+    return el ? el.textContent : "-";
+  };
+  
+  const waterfall = {
+    vad_start: getVal("wf-vad-start"),
+    stt_complete: getVal("wf-stt-complete"),
+    orch_start: getVal("wf-orch-start"),
+    llm_first_token: getVal("wf-llm-first-token"),
+    llm_complete: getVal("wf-llm-complete"),
+    tts_first_audio: getVal("wf-tts-first-audio"),
+    tts_complete: getVal("wf-tts-complete") || getVal("wf-tts-first-audio"),
+    playback_start: getVal("wf-playback-start"),
+    playback_end: getVal("wf-playback-end")
+  };
+
+  // Skip if it's an empty record
+  if (Object.values(waterfall).every(v => v === "-")) return;
+
+  let userQueryVal = getVal("user-transcript");
+  if (userQueryVal === "Listening for your speech...") userQueryVal = "-";
+  let agentResponseVal = getVal("agent-response");
+  if (agentResponseVal === "Waiting for query...") agentResponseVal = "-";
+
+  const turnIndex = window.sessionMetricsHistory.turn_latency_records.length + 1;
+  const istTime = window.formatIST ? window.formatIST() : new Date().toLocaleString();
+  const record = {
+    turn_index: turnIndex,
+    timestamp: istTime,
+    timestamp_ist: istTime,
+    status: isCancelled ? `cancelled (${reason})` : "completed",
+    user_query: userQueryVal,
+    agent_response: agentResponseVal,
+    waterfall: waterfall
+  };
+
+  window.sessionMetricsHistory.turn_latency_records.push(record);
+
+  // Parse millisecond targets to run threshold comparisons
+  const thresholds = window.getThresholds();
+  const parseMs = (text) => {
+    if (!text || text === "-" || text === "") return null;
+    const m = text.match(/\+?(\d+)ms/);
+    return m ? parseInt(m[1]) : null;
+  };
+
+  const sttOffset = parseMs(waterfall.stt_complete);
+  const llm1stOffset = parseMs(waterfall.llm_first_token);
+  const llmCompOffset = parseMs(waterfall.llm_complete);
+  const tts1stOffset = parseMs(waterfall.tts_first_audio);
+  const ttsCompOffset = parseMs(waterfall.tts_complete);
+  const playbackStartOffset = parseMs(waterfall.playback_start);
+
+  const addWarning = (metricName, val, threshold, text) => {
+    window.sessionMetricsHistory.high_latency_warnings.push({
+      timestamp: istTime,
+      timestamp_ist: istTime,
+      turn_index: turnIndex,
+      metric: metricName,
+      value: `${val}ms`,
+      threshold: `${threshold}ms`,
+      message: text
+    });
+  };
+
+  // Run threshold checks on backend pipeline stage latencies
+  if (llm1stOffset !== null && sttOffset !== null) {
+    const llmLat = llm1stOffset - sttOffset;
+    if (llmLat > thresholds.llm) {
+      addWarning("LLM First Token Latency", llmLat, thresholds.llm, `LLM TTFT took ${llmLat}ms (Threshold: ${thresholds.llm}ms)`);
+    }
+  }
+  if (tts1stOffset !== null && llm1stOffset !== null) {
+    const ttsLat = tts1stOffset - (llmCompOffset || llm1stOffset);
+    if (ttsLat > thresholds.tts) {
+      addWarning("TTS Synthesis Latency", ttsLat, thresholds.tts, `TTS synthesis took ${ttsLat}ms (Threshold: ${thresholds.tts}ms)`);
+    }
+  }
+  if (playbackStartOffset !== null && sttOffset !== null) {
+    const ttfb = playbackStartOffset - sttOffset;
+    if (ttfb > thresholds.total) {
+      addWarning("Response Latency (TTFB)", ttfb, thresholds.total, `Total response TTFB took ${ttfb}ms (Threshold: ${thresholds.total}ms)`);
+    }
+  }
+  if (playbackStartOffset !== null && playbackStartOffset > thresholds.total) {
+    addWarning("Total Pipeline Latency", playbackStartOffset, thresholds.total, `Total turn latency took ${playbackStartOffset}ms (Threshold: ${thresholds.total}ms)`);
+  }
+};
+
+window.dispatchTelemetryEvent = function(eventType, detail) {
+  console.log(`[TelemetryEvent] ${eventType}`, detail);
+  if (eventType === "playback_end") {
+    window.recordTurnMetrics(false, "");
+  } else if (eventType === "cancellation") {
+    window.recordTurnMetrics(true, detail.reason || "interrupted");
+  }
+};

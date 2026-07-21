@@ -50,6 +50,12 @@ window.leftoverBytes = null;
 window.playbackGeneration = 0;
 window.currentServerTurnId = 0;
 window.awaitingNewTurn = false;
+window._ttsFirstAudioFired = false;
+window._playbackStartFired = false;
+window._turnRecorded = false;
+window.currentTurnIndex = 0;
+window.lastRecordedTurnId = -1;
+window._turnInProgress = false;
 
 // Dashboard telemetry resources
 window.pipelineEls = {
@@ -69,4 +75,25 @@ window.sessionMetrics = {
   totalTokens: 0,
   totalCost: 0,
   maxQueueLen: 0
+};
+window.formatIST = function(d) {
+  const date = d ? (d instanceof Date ? d : new Date(d)) : new Date();
+  return date.toLocaleString("en-US", {
+    timeZone: "Asia/Kolkata",
+    year: "numeric",
+    month: "numeric",
+    day: "numeric",
+    hour: "numeric",
+    minute: "numeric",
+    second: "numeric",
+    hour12: true
+  }) + " (IST)";
+};
+
+window.sessionMetricsHistory = {
+  session_id: window.sessionId,
+  start_time: window.formatIST(),
+  system_snapshots: [],
+  turn_latency_records: [],
+  high_latency_warnings: []
 };

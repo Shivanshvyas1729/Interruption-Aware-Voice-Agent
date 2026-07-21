@@ -114,6 +114,21 @@ class VoicePipeline:
             CancelCommand(session_id=session_id, reason=reason)
         )
 
+    def cancel_inflight_tasks(self, session_id: str):
+        """Preemptively cancel in-flight LLM and TTS asyncio.Tasks for a session.
+
+        This is called from FSM._handle_cancel so that blocking executor calls
+        (Groq streaming, Cartesia WS) are interrupted immediately rather than
+        waiting for the next cooperative cancellation check.
+        """
+        llm_task = self.llm._session_tasks.get(session_id)
+        if llm_task and not llm_task.done():
+            llm_task.cancel()
+
+        tts_task = self.tts._session_tasks.get(session_id)
+        if tts_task and not tts_task.done():
+            tts_task.cancel()
+
     # ------------------------------------------------------------------ #
     # Client registration / cleanup                                        #
     # ------------------------------------------------------------------ #
