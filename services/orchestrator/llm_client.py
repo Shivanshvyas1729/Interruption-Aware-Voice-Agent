@@ -2,6 +2,7 @@ import time
 from common.config.settings import get_settings
 from common.config.voice_settings import get as vc_get
 from common.logging.logger import get_logger
+from services.edge_auth.telemetry_bus import telemetry_bus
 from services.orchestrator.context_manager import (
     estimate_tokens,
     get_token_budget,
@@ -37,7 +38,7 @@ def call_primary_direct(session_id: str, turn_id: str, messages: list[dict]) -> 
         )
         last_user_message = messages[-1]["content"].lower() if messages else ""
         if "mars" in last_user_message:
-            return "Mars is the fourth planet from the Sun and the second-smallest planet in the Solar System."
+            return "Mars is the fourth planet from the Sun. It is the second-smallest planet in the Solar System."
         elif "far" in last_user_message or "distance" in last_user_message:
             context_has_mars = any("mars" in msg["content"].lower() for msg in messages[:-1])
             if context_has_mars:
@@ -146,9 +147,12 @@ def _get_sentence_re():
     global _SENTENCE_END_RE
     if _SENTENCE_END_RE is None:
         # Split after .  !  ?  or newline, only when followed by whitespace.
-        # Edge-case punt: abbreviations/decimals ("Dr.", "3.14") are treated as
-        # sentence ends. This is documented and acceptable for a voice assistant.
-        _SENTENCE_END_RE = re.compile(r'(?<=[.!?\n])\s+')
+        # Exclude common abbreviations (Mr., Dr., etc., vs., e.g., i.e.) via negative lookbehind.
+        abbrev_lookbehind = (
+            r'(?<!\bMr)(?<!\bDr)(?<!\betc)(?<!\bvs)(?<!\be\.g)(?<!\bi\.e)'
+        )
+        pattern = rf'(?:(?<=[!?\n])|(?<={abbrev_lookbehind}\.))\s+'
+        _SENTENCE_END_RE = re.compile(pattern, re.IGNORECASE)
     return _SENTENCE_END_RE
 
 
@@ -198,10 +202,22 @@ def call_primary_streaming(
     # 2. Mock / test path                                                  #
     # ------------------------------------------------------------------ #
     if not api_key or api_key == "dummy_val" or settings.env == "test":
+        start_time = time.time()
         full_text = call_primary_direct(session_id, turn_id, messages)
+        latency_ms = int((time.time() - start_time) * 1000)
+        telemetry_bus.push("llm_first_token", {"latency_ms": latency_ms}, session_id, turn_id)
         from services.orchestrator.async_pipeline import get_current_turn
-        if full_text and not cancellation_manager.is_cancelled(session_id) and int(turn_id) >= get_current_turn(session_id):
-            sentence_callback(full_text)
+        if full_text:
+            sentence_re = _get_sentence_re()
+            sentences = [s.strip() for s in sentence_re.split(full_text) if s.strip()]
+            for idx, sentence in enumerate(sentences):
+                if cancellation_manager.is_cancelled(session_id) or int(turn_id) < get_current_turn(session_id):
+                    break
+                sentence_callback(sentence)
+                if idx < len(sentences) - 1:
+                    time.sleep(vc_get("llm.mock_sleep_ms", 50) / 1000.0)
+        total_latency_ms = int((time.time() - start_time) * 1000)
+        telemetry_bus.push("llm_complete", {"latency_ms": total_latency_ms, "provider": "groq_mock"}, session_id, turn_id)
         cache_client.store(session_id, query, full_text, system_prompt, model_name, messages)
         return full_text
 
@@ -251,7 +267,6 @@ def call_primary_streaming(
     except Exception as connect_err:
         # Groq connect failed — fall back to OpenAI synchronously
         failover.primary_circuit_breaker.record_failure(session_id, turn_id)
-        from services.edge_auth.telemetry_bus import telemetry_bus
         telemetry_bus.push("llm_failover_triggered", {"reason": str(connect_err)}, session_id, turn_id)
         logger.log(
             event_name="llm_failover_triggered",
@@ -292,6 +307,7 @@ def call_primary_streaming(
             if not first_token_fired:
                 first_token_fired = True
                 latency_ms = int((time.time() - start_time) * 1000)
+                telemetry_bus.push("llm_first_token", {"latency_ms": latency_ms}, session_id, turn_id)
                 logger.log(
                     event_name="llm_first_token",
                     session_id=session_id,
@@ -332,6 +348,12 @@ def call_primary_streaming(
     completion_tok = estimate_tokens(full_text)
     budget = get_token_budget(session_id)
     budget.record_completion(completion_tok)
+    telemetry_bus.push("llm_complete", {
+        "latency_ms": total_latency_ms,
+        "provider": "groq",
+        "prompt_tokens": budget.prompt_tokens,
+        "completion_tokens": completion_tok,
+    }, session_id, turn_id)
     logger.log(
         event_name="llm_complete",
         session_id=session_id,

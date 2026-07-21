@@ -33,8 +33,8 @@ langchain-openai
 
 # --- Phase 8 (feature-flagged) ---
 qdrant-client
-mastra-sdk        # placeholder name — confirm actual package at Phase 8
-enkrypt-sdk        # placeholder name — confirm actual package at Phase 8
+# mastra-sdk        # placeholder name — confirm actual package at Phase 8
+# enkrypt-sdk        # placeholder name — confirm actual package at Phase 8
 
 # --- Phase 9 ---
 opentelemetry-sdk

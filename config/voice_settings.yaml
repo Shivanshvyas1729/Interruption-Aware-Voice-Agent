@@ -5,7 +5,7 @@
 # =============================================================================
 
 llm:
-  system_prompt: "You are a helpful voice assistant. Keep responses concise and conversational — 2 to 3 sentences maximum. Do not use lists or bullet points."
+  system_prompt: "You are a low-latency real-time voice assistant. Keep responses concise and conversational. Put the most important information/direct answer in the very first sentence. Structure your response as a progressive sequence of short, self-contained sentences that are independently speakable. Do not use lists, bullet points, or reference future sentences."
   # Token budget: 150 = ~2-3 sentences. Prevents runaway generation and wasted TTS API calls.
   max_tokens: 150
   # Sentence cap: stop dispatching to TTS after this many sentences, even if LLM keeps streaming.

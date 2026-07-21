@@ -104,6 +104,8 @@ def speak(session_id: str, turn_id: str, text: str) -> bytes:
 def speak_stream(session_id: str, turn_id: str, text: str, chunk_callback) -> None:
     """Streams synthesized response audio chunks chunk-by-chunk to the callback."""
     import time
+    from services.orchestrator.cancellation_manager import cancellation_manager
+    from services.orchestrator.async_pipeline import get_current_turn
     start_time = time.time()
     settings = get_settings()
     api_key = settings.cartesia_api_key
@@ -115,7 +117,6 @@ def speak_stream(session_id: str, turn_id: str, text: str, chunk_callback) -> No
         num_chunks = max(10, len(words))
         mock_chunk = b'\x00' * chunk_size
         for idx in range(num_chunks):
-            from services.orchestrator.async_pipeline import get_current_turn
             if cancellation_manager.is_cancelled(session_id) or int(turn_id) < get_current_turn(session_id):
                 break
             if idx < len(words):
@@ -124,8 +125,6 @@ def speak_stream(session_id: str, turn_id: str, text: str, chunk_callback) -> No
             time.sleep(vc_get("tts.mock_chunk_sleep_ms", 10) / 1000.0)
         return
 
-    from services.orchestrator.cancellation_manager import cancellation_manager
-    from services.orchestrator.async_pipeline import get_current_turn
     if cancellation_manager.is_cancelled(session_id) or int(turn_id) < get_current_turn(session_id):
         return
 

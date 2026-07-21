@@ -577,69 +577,111 @@
     <div class="main-layout">
       <!-- Header -->
       <header class="header">
-        <h1>🎙️ Pivot Voice Agent</h1>
+        <h1>🎙�? Pivot Voice Agent</h1>
         <div class="subtitle">Interruption-Aware WebRTC Voice Client — Real-time Pipeline Monitoring</div>
       </header>
 
-      <!-- Control Bar -->
-      <div class="control-bar">
-        <div class="status-row">
-          <div class="status-container">
+      <!-- Top Header & Control Bar -->
+      <div class="control-bar" style="background: rgba(15, 23, 42, 0.7); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 16px; padding: 10px 20px; backdrop-filter: blur(20px); display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 10px;">
+        <div class="status-row" style="display: flex; align-items: center; gap: 12px;">
+          <div class="status-container" style="display: flex; align-items: center; gap: 8px; background: rgba(0, 0, 0, 0.4); padding: 6px 14px; border-radius: 30px; border: 1px solid rgba(255, 255, 255, 0.05);">
             <div class="status-dot idle" id="status-dot"></div>
-            <div class="status-badge idle" id="status-badge">Disconnected</div>
+            <div class="status-badge idle" id="status-badge" style="font-weight: 600; font-size: 0.85rem; letter-spacing: 0.5px;">Disconnected</div>
           </div>
           <!-- Wave animation indicator -->
-          <div id="wave-container" style="display:flex; align-items:center; gap:3px; margin-left:8px; height:24px;">
+          <div id="wave-container" style="display:flex; align-items:center; gap:3px; height:24px; padding: 0 4px;">
             <div class="wave-bar" style="width:3px; height:12px; border-radius:2px; background:#3b82f6; transition:all 0.3s ease;"></div>
             <div class="wave-bar" style="width:3px; height:18px; border-radius:2px; background:#3b82f6; transition:all 0.3s ease;"></div>
             <div class="wave-bar" style="width:3px; height:10px; border-radius:2px; background:#3b82f6; transition:all 0.3s ease;"></div>
             <div class="wave-bar" style="width:3px; height:22px; border-radius:2px; background:#3b82f6; transition:all 0.3s ease;"></div>
             <div class="wave-bar" style="width:3px; height:14px; border-radius:2px; background:#3b82f6; transition:all 0.3s ease;"></div>
           </div>
-          <span class="streaming-badge" id="streaming-badge">Pipeline: REST</span>
-          <button class="btn-icon" id="toggle-dashboard-btn" style="margin-left: 12px; display: flex; align-items: center; gap: 6px;">📊 Dashboard</button>
+          <span class="streaming-badge" id="streaming-badge" style="background: rgba(59, 130, 246, 0.15); border: 1px solid rgba(59, 130, 246, 0.3); color: #60a5fa; padding: 4px 10px; border-radius: 20px; font-size: 0.75rem; font-weight: 600;">Pipeline: REST</span>
+          <button id="toggle-dashboard-btn" style="display:none;"></button>
         </div>
-        <button class="btn" id="join-btn" aria-label="Join voice session">
-          <span>Join Session</span>
-        </button>
+
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <!-- Docs Modal Toggle Button -->
+          <button id="toggle-docs-modal-btn" class="btn" style="background: rgba(16,185,129,0.12); border: 1px solid rgba(16,185,129,0.3); color: #34d399; padding: 8px 14px; border-radius: 10px; font-size: 0.78rem; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 6px;">
+            📖 Docs
+          </button>
+
+          <!-- System Logs Toggle Button -->
+          <button id="toggle-logs-modal-btn" class="btn" style="background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1); color: #e2e8f0; padding: 8px 14px; border-radius: 10px; font-size: 0.78rem; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 6px;">
+            📋 System Logs
+          </button>
+          
+          <!-- Collapsible Controls Side Drawer Toggle Button -->
+          <button id="open-drawer-btn" class="btn" style="background: rgba(139, 92, 246, 0.15); border: 1px solid rgba(139, 92, 246, 0.3); color: #a78bfa; padding: 8px 14px; border-radius: 10px; font-size: 0.78rem; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 6px;">
+            ⚙�? Session Controls Panel
+          </button>
+
+          <!-- Primary Join Session Button -->
+          <button class="btn" id="join-btn" aria-label="Join voice session" style="background: linear-gradient(135deg, #3b82f6, #8b5cf6); padding: 9px 22px; border-radius: 10px; font-weight: 700; border: none; cursor: pointer; box-shadow: 0 4px 14px rgba(59, 130, 246, 0.4); transition: transform 0.2s ease;">
+            <span>Join Session</span>
+          </button>
+        </div>
       </div>
 
-      <!-- Dashboard metrics-panel (hidden by default) -->
-      <div id="metrics-panel" style="display: none; flex-direction: column; gap: 16px; background: var(--card-bg); border: 1px solid var(--card-border); border-radius: 16px; padding: 20px; backdrop-filter: blur(16px); margin: 8px 0 16px 0;">
-        <h3 style="font-family: 'Space Grotesk', sans-serif; font-size: 1.1rem; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 8px;">📊 Real-time Pipeline Telemetry & Performance</h3>
+      <!-- Compact Glass HUD Mirror Banner (Single Line STT & LLM Top Display) -->
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px;">
+        <!-- STT Glass HUD Banner -->
+        <div style="background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.2); border-radius: 12px; padding: 8px 14px; backdrop-filter: blur(12px); display: flex; align-items: center; gap: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+          <span style="font-weight: 800; color: #10b981; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px; flex-shrink: 0;">🎙�? YOU:</span>
+          <span id="user-transcript" style="font-size: 0.85rem; color: #f3f4f6; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500;">Listening for your speech...</span>
+        </div>
+
+        <!-- LLM Glass HUD Banner -->
+        <div style="background: rgba(167, 139, 250, 0.08); border: 1px solid rgba(167, 139, 250, 0.2); border-radius: 12px; padding: 8px 14px; backdrop-filter: blur(12px); display: flex; align-items: center; justify-content: space-between; white-space: nowrap; overflow: hidden; gap: 10px;">
+          <div style="display: flex; align-items: center; gap: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+            <span style="font-weight: 800; color: #a78bfa; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px; flex-shrink: 0;">🤖 AGENT:</span>
+            <span id="agent-response" style="font-size: 0.85rem; color: #f3f4f6; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500;">Waiting for query...</span>
+          </div>
+          <div style="display: flex; gap: 6px; font-family: monospace; font-size: 0.7rem; color: #9ca3af; flex-shrink: 0;">
+            <span>TTFB: <strong id="llm-ttfb" style="color: #a78bfa;">-</strong></span>
+            <span>Lat: <strong id="llm-latency" style="color: #ec4899;">-</strong></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Single-Page Unified Dashboard Operations Center -->
+      <div id="metrics-panel" style="display: flex; flex-direction: column; gap: 14px; background: rgba(15, 23, 42, 0.75); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 18px; padding: 20px; backdrop-filter: blur(20px); box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);">
+        <h3 style="font-family: 'Space Grotesk', sans-serif; font-size: 1.05rem; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 8px; margin: 0; display: flex; align-items: center; justify-content: space-between;">
+          <span>📊 Real-time Pipeline Telemetry & Operations Center</span>
+          <span style="font-size: 0.75rem; color: #9ca3af; font-weight: 400;">Interruption-Aware Voice Stack</span>
+        </h3>
         
         <!-- Pipeline Stage Indicators -->
-        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; text-align: center;">
-          <div id="pipeline-vad" style="padding: 10px; border-radius: 8px; font-weight: 600; font-size: 0.8rem; background: rgba(255,255,255,0.03); color: #9ca3af;">⏳ VAD</div>
-          <div id="pipeline-stt" style="padding: 10px; border-radius: 8px; font-weight: 600; font-size: 0.8rem; background: rgba(255,255,255,0.03); color: #9ca3af;">⏳ STT</div>
-          <div id="pipeline-llm" style="padding: 10px; border-radius: 8px; font-weight: 600; font-size: 0.8rem; background: rgba(255,255,255,0.03); color: #9ca3af;">⏳ LLM</div>
-          <div id="pipeline-tts" style="padding: 10px; border-radius: 8px; font-weight: 600; font-size: 0.8rem; background: rgba(255,255,255,0.03); color: #9ca3af;">⏳ TTS</div>
-          <div id="pipeline-playback" style="padding: 10px; border-radius: 8px; font-weight: 600; font-size: 0.8rem; background: rgba(255,255,255,0.03); color: #9ca3af;">⏳ PLAYBACK</div>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; text-align: center;">
+          <div id="pipeline-vad" style="padding: 8px; border-radius: 8px; font-weight: 600; font-size: 0.78rem; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05); color: #9ca3af;">�?� VAD</div>
+          <div id="pipeline-stt" style="padding: 8px; border-radius: 8px; font-weight: 600; font-size: 0.78rem; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05); color: #9ca3af;">�?� STT</div>
+          <div id="pipeline-llm" style="padding: 8px; border-radius: 8px; font-weight: 600; font-size: 0.78rem; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05); color: #9ca3af;">�?� LLM</div>
+          <div id="pipeline-tts" style="padding: 8px; border-radius: 8px; font-weight: 600; font-size: 0.78rem; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05); color: #9ca3af;">�?� TTS</div>
+          <div id="pipeline-playback" style="padding: 8px; border-radius: 8px; font-weight: 600; font-size: 0.78rem; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05); color: #9ca3af;">�?� PLAYBACK</div>
         </div>
 
         <!-- Latency Waterfall -->
-        <div style="background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.05); border-radius: 12px; padding: 16px;">
-          <h4 style="font-size: 0.85rem; font-weight: 600; text-transform: uppercase; color: var(--text-secondary); margin-bottom: 12px;">🕒 Turn Latency Waterfall (Monotonic)</h4>
-          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; font-size: 0.8rem; font-family: monospace;">
-            <div style="display:flex; justify-content:space-between; padding: 4px; border-bottom: 1px solid rgba(255,255,255,0.02);"><span>VAD Start:</span><span id="wf-vad-start" style="font-weight:600; color:#fbbf24;">-</span></div>
-            <div style="display:flex; justify-content:space-between; padding: 4px; border-bottom: 1px solid rgba(255,255,255,0.02);"><span>STT Complete:</span><span id="wf-stt-complete" style="font-weight:600; color:#10b981;">-</span></div>
-            <div style="display:flex; justify-content:space-between; padding: 4px; border-bottom: 1px solid rgba(255,255,255,0.02);"><span>Orchestration Start:</span><span id="wf-orch-start" style="font-weight:600; color:#3b82f6;">-</span></div>
-            <div style="display:flex; justify-content:space-between; padding: 4px; border-bottom: 1px solid rgba(255,255,255,0.02);"><span>LLM First Token:</span><span id="wf-llm-first-token" style="font-weight:600; color:#a855f7;">-</span></div>
-            <div style="display:flex; justify-content:space-between; padding: 4px; border-bottom: 1px solid rgba(255,255,255,0.02);"><span>LLM Complete:</span><span id="wf-llm-complete" style="font-weight:600; color:#ec4899;">-</span></div>
-            <div style="display:flex; justify-content:space-between; padding: 4px; border-bottom: 1px solid rgba(255,255,255,0.02);"><span>TTS First Audio:</span><span id="wf-tts-first-audio" style="font-weight:600; color:#f59e0b;">-</span></div>
-            <div style="display:flex; justify-content:space-between; padding: 4px; border-bottom: 1px solid rgba(255,255,255,0.02);"><span>TTS Complete:</span><span id="wf-tts-complete" style="font-weight:600; color:#10b981;">-</span></div>
-            <div style="display:flex; justify-content:space-between; padding: 4px; border-bottom: 1px solid rgba(255,255,255,0.02);"><span>Playback Start:</span><span id="wf-playback-start" style="font-weight:600; color:#84cc16;">-</span></div>
-            <div style="display:flex; justify-content:space-between; padding: 4px; border-bottom: 1px solid rgba(255,255,255,0.02);"><span>Playback End:</span><span id="wf-playback-end" style="font-weight:600; color:#ef4444;">-</span></div>
+        <div style="background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.06); border-radius: 12px; padding: 12px 16px;">
+          <h4 style="font-size: 0.75rem; font-weight: 700; text-transform: uppercase; color: var(--text-secondary); margin-bottom: 8px; letter-spacing: 0.5px;">🕒 Turn Latency Waterfall (Monotonic)</h4>
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 8px; font-size: 0.78rem; font-family: monospace;">
+            <div style="display:flex; justify-content:space-between; padding: 3px 4px; border-bottom: 1px solid rgba(255,255,255,0.03);"><span>VAD Start:</span><span id="wf-vad-start" style="font-weight:600; color:#fbbf24;">-</span></div>
+            <div style="display:flex; justify-content:space-between; padding: 3px 4px; border-bottom: 1px solid rgba(255,255,255,0.03);"><span>STT Complete:</span><span id="wf-stt-complete" style="font-weight:600; color:#10b981;">-</span></div>
+            <div style="display:flex; justify-content:space-between; padding: 3px 4px; border-bottom: 1px solid rgba(255,255,255,0.03);"><span>Orchestration:</span><span id="wf-orch-start" style="font-weight:600; color:#3b82f6;">-</span></div>
+            <div style="display:flex; justify-content:space-between; padding: 3px 4px; border-bottom: 1px solid rgba(255,255,255,0.03);"><span>LLM 1st Token:</span><span id="wf-llm-first-token" style="font-weight:600; color:#a855f7;">-</span></div>
+            <div style="display:flex; justify-content:space-between; padding: 3px 4px; border-bottom: 1px solid rgba(255,255,255,0.03);"><span>LLM Complete:</span><span id="wf-llm-complete" style="font-weight:600; color:#ec4899;">-</span></div>
+            <div style="display:flex; justify-content:space-between; padding: 3px 4px; border-bottom: 1px solid rgba(255,255,255,0.03);"><span>TTS 1st Audio:</span><span id="wf-tts-first-audio" style="font-weight:600; color:#f59e0b;">-</span></div>
+            <div style="display:flex; justify-content:space-between; padding: 3px 4px; border-bottom: 1px solid rgba(255,255,255,0.03);"><span>TTS Complete:</span><span id="wf-tts-complete" style="font-weight:600; color:#10b981;">-</span></div>
+            <div style="display:flex; justify-content:space-between; padding: 3px 4px; border-bottom: 1px solid rgba(255,255,255,0.03);"><span>Playback Start:</span><span id="wf-playback-start" style="font-weight:600; color:#84cc16;">-</span></div>
+            <div style="display:flex; justify-content:space-between; padding: 3px 4px; border-bottom: 1px solid rgba(255,255,255,0.03);"><span>Playback End:</span><span id="wf-playback-end" style="font-weight:600; color:#ef4444;">-</span></div>
           </div>
         </div>
 
         <!-- Telemetry Metrics Grid -->
-        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px;">
-          
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px;">
           <!-- System Status & Resource Usage -->
-          <div style="background: rgba(0,0,0,0.15); padding: 14px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.04); font-size: 0.85rem;">
-            <h5 style="color:var(--text-secondary); margin-bottom: 10px; font-weight:600; text-transform:uppercase; font-size: 0.75rem;">💻 Server Resources</h5>
-            <div style="display:flex; flex-direction:column; gap:6px;">
+          <div style="background: rgba(0,0,0,0.2); padding: 12px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.04); font-size: 0.8rem;">
+            <h5 style="color:var(--text-secondary); margin-bottom: 6px; font-weight:700; text-transform:uppercase; font-size: 0.7rem;">💻 Server Resources</h5>
+            <div style="display:flex; flex-direction:column; gap:4px;">
               <div style="display:flex; justify-content:space-between;"><span>CPU Usage:</span><strong id="live-cpu">-</strong></div>
               <div style="display:flex; justify-content:space-between;"><span>RAM Usage:</span><strong id="live-memory">-</strong></div>
               <div style="display:flex; justify-content:space-between;"><span>Queue Length:</span><strong id="live-queue-length">-</strong></div>
@@ -648,9 +690,9 @@
           </div>
 
           <!-- WebRTC Statistics -->
-          <div style="background: rgba(0,0,0,0.15); padding: 14px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.04); font-size: 0.85rem;">
-            <h5 style="color:var(--text-secondary); margin-bottom: 10px; font-weight:600; text-transform:uppercase; font-size: 0.75rem;">📶 WebRTC Connection</h5>
-            <div style="display:flex; flex-direction:column; gap:6px;">
+          <div style="background: rgba(0,0,0,0.2); padding: 12px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.04); font-size: 0.8rem;">
+            <h5 style="color:var(--text-secondary); margin-bottom: 6px; font-weight:700; text-transform:uppercase; font-size: 0.7rem;">📶 WebRTC Connection</h5>
+            <div style="display:flex; flex-direction:column; gap:4px;">
               <div style="display:flex; justify-content:space-between;"><span>Audio Jitter:</span><strong id="webrtc-jitter">-</strong></div>
               <div style="display:flex; justify-content:space-between;"><span>Packet Loss:</span><strong id="webrtc-loss">-</strong></div>
               <div style="display:flex; justify-content:space-between;"><span>Bitrate:</span><strong id="webrtc-bitrate">-</strong></div>
@@ -658,137 +700,567 @@
           </div>
 
           <!-- Tokens & Session Budget -->
-          <div style="background: rgba(0,0,0,0.15); padding: 14px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.04); font-size: 0.85rem;">
-            <h5 style="color:var(--text-secondary); margin-bottom: 10px; font-weight:600; text-transform:uppercase; font-size: 0.75rem;">💰 Token Usage & Billing</h5>
-            <div style="display:flex; flex-direction:column; gap:6px;">
-              <div style="display:flex; justify-content:space-between;"><span>LLM Gen Speed:</span><strong id="live-tokens-sec">-</strong></div>
+          <div style="background: rgba(0,0,0,0.2); padding: 12px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.04); font-size: 0.8rem;">
+            <h5 style="color:var(--text-secondary); margin-bottom: 6px; font-weight:700; text-transform:uppercase; font-size: 0.7rem;">💰 Token Usage</h5>
+            <div style="display:flex; flex-direction:column; gap:4px;">
               <div style="display:flex; justify-content:space-between;"><span>Prompt Tokens:</span><strong id="metrics-prompt-tokens">-</strong></div>
               <div style="display:flex; justify-content:space-between;"><span>Completion Tokens:</span><strong id="metrics-completion-tokens">-</strong></div>
               <div style="display:flex; justify-content:space-between;"><span>Session Cost:</span><strong id="metrics-cost">-</strong></div>
             </div>
           </div>
 
-          <!-- Browser Diagnostics -->
-          <div style="background: rgba(0,0,0,0.15); padding: 14px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.04); font-size: 0.85rem;">
-            <h5 style="color:var(--text-secondary); margin-bottom: 10px; font-weight:600; text-transform:uppercase; font-size: 0.75rem;">⚖️ Client Diagnostics</h5>
-            <div style="display:flex; flex-direction:column; gap:6px;">
+          <!-- Client Diagnostics -->
+          <div style="background: rgba(0,0,0,0.2); padding: 12px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.04); font-size: 0.8rem;">
+            <h5 style="color:var(--text-secondary); margin-bottom: 6px; font-weight:700; text-transform:uppercase; font-size: 0.7rem;">⚖�? Client Diagnostics</h5>
+            <div style="display:flex; flex-direction:column; gap:4px;">
               <div style="display:flex; justify-content:space-between;"><span>DOM Nodes:</span><strong id="browser-dom">-</strong></div>
-              <div style="display:flex; justify-content:space-between;"><span>JS Heap size:</span><strong id="browser-heap">-</strong> mb</div>
-              <div style="display:flex; justify-content:space-between;"><span>Render FPS:</span><strong id="browser-fps">-</strong> fps</div>
-              <div style="display:flex; justify-content:space-between;"><span>Event Loop Lag:</span><strong id="browser-loop">-</strong> ms</div>
+              <div style="display:flex; justify-content:space-between;"><span>JS Heap:</span><strong id="browser-heap">-</strong> mb</div>
+              <div style="display:flex; justify-content:space-between;"><span>FPS:</span><strong id="browser-fps">-</strong> fps</div>
             </div>
           </div>
+        </div>
 
+        <!-- Master Control Panel (Grouped Configuration) -->
+        <div style="background: rgba(15, 23, 42, 0.6); padding: 16px; border-radius: 14px; border: 1px solid rgba(255,255,255,0.08); backdrop-filter: blur(16px); font-size: 0.82rem; display: flex; flex-direction: column; gap: 14px;">
+          <h4 style="font-size: 0.85rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-primary); border-bottom: 1px solid rgba(255,255,255,0.06); padding-bottom: 8px; margin: 0; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+            <span style="display: flex; align-items: center; gap: 8px;">🎛�? Agent Parameter Configuration</span>
+            <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+              <button id="preset-human-btn" class="btn" style="padding: 5px 12px; font-size: 0.72rem; border-radius: 6px; height: auto; min-height: unset; margin: 0; width: auto; background: linear-gradient(135deg, rgba(236,72,153,0.2), rgba(139,92,246,0.2)); border: 1px solid #ec4899; color: #f472b6; font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 4px;">✨ Best Human Defaults</button>
+              <button id="download-settings-btn" class="btn" style="padding: 5px 12px; font-size: 0.72rem; border-radius: 6px; height: auto; min-height: unset; margin: 0; width: auto; background: rgba(59,130,246,0.2); border: 1px solid #3b82f6; color: #60a5fa; cursor: pointer;">📥 Settings</button>
+              <button id="download-metrics-btn" class="btn" style="padding: 5px 12px; font-size: 0.72rem; border-radius: 6px; height: auto; min-height: unset; margin: 0; width: auto; background: rgba(16,185,129,0.2); border: 1px solid #10b981; color: #34d399; cursor: pointer;">📊 Metrics</button>
+              <button id="save-limits-btn" class="btn" style="padding: 5px 14px; font-size: 0.72rem; border-radius: 6px; height: auto; min-height: unset; margin: 0; width: auto; background: linear-gradient(135deg, #3b82f6, #8b5cf6); border: none; font-weight: 700; cursor: pointer;">Apply & Save</button>
+            </div>
+          </h4>
+
+          <!-- Group Navigation Selector Tabs -->
+          <div id="control-group-tabs" style="display: flex; gap: 8px; border-bottom: 1px solid rgba(255,255,255,0.06); padding-bottom: 10px; overflow-x: auto;">
+            <button class="grp-tab-btn active" data-group="grp-llm" style="padding: 6px 14px; font-size: 0.75rem; font-weight: 700; border-radius: 8px; border: 1px solid rgba(59,130,246,0.5); background: rgba(59,130,246,0.2); color: #60a5fa; cursor: pointer; transition: all 0.2s ease;">🧠 LLM Intelligence</button>
+            <button class="grp-tab-btn" data-group="grp-voice" style="padding: 6px 14px; font-size: 0.75rem; font-weight: 700; border-radius: 8px; border: 1px solid rgba(255,255,255,0.08); background: rgba(255,255,255,0.03); color: #9ca3af; cursor: pointer; transition: all 0.2s ease;">🔊 Voice & Synthesis</button>
+            <button class="grp-tab-btn" data-group="grp-stt" style="padding: 6px 14px; font-size: 0.75rem; font-weight: 700; border-radius: 8px; border: 1px solid rgba(255,255,255,0.08); background: rgba(255,255,255,0.03); color: #9ca3af; cursor: pointer; transition: all 0.2s ease;">🎙�? STT & VAD</button>
+            <button class="grp-tab-btn" data-group="grp-latency" style="padding: 6px 14px; font-size: 0.75rem; font-weight: 700; border-radius: 8px; border: 1px solid rgba(255,255,255,0.08); background: rgba(255,255,255,0.03); color: #9ca3af; cursor: pointer; transition: all 0.2s ease;">�?��? Latency & Delays</button>
+            <button class="grp-tab-btn" data-group="grp-all" style="padding: 6px 14px; font-size: 0.75rem; font-weight: 700; border-radius: 8px; border: 1px solid rgba(255,255,255,0.08); background: rgba(255,255,255,0.03); color: #9ca3af; cursor: pointer; transition: all 0.2s ease;">�?�? View All</button>
+          </div>
+          
+          <!-- Group Content Panels -->
+          <div id="control-groups-container" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px;">
+            
+            <!-- Group 1: LLM Token & Sentence Bounds -->
+            <div id="grp-llm" class="ctrl-grp-card" style="background: rgba(255,255,255,0.02); padding: 14px; border-radius: 12px; border: 1px solid rgba(59,130,246,0.3); display: flex; flex-direction: column; gap: 10px;">
+              <div style="display: flex; justify-content: space-between; align-items: center;">
+                <span style="font-weight: 700; color: #60a5fa; font-size: 0.78rem; text-transform: uppercase;">🧠 LLM Intelligence</span>
+                <span style="font-size: 0.65rem; background: rgba(59,130,246,0.15); color: #60a5fa; padding: 2px 6px; border-radius: 4px;">Human Response Bounds</span>
+              </div>
+              <div style="display: flex; flex-direction: column; gap: 4px;">
+                <label style="display: flex; justify-content: space-between; font-size: 0.72rem; color: #9ca3af;">
+                  Normal Tokens: <span id="normal-tokens-val" style="font-weight: bold; color: #3b82f6;">200</span>
+                </label>
+                <input type="range" id="normal-tokens-slider" min="50" max="1000" step="10" value="200" style="width: 100%; cursor: pointer;">
+              </div>
+              <div style="display: flex; flex-direction: column; gap: 4px;">
+                <label style="display: flex; justify-content: space-between; font-size: 0.72rem; color: #9ca3af;">
+                  Normal Sentences: <span id="normal-sentences-val" style="font-weight: bold; color: #3b82f6;">2</span>
+                </label>
+                <input type="range" id="normal-sentences-slider" min="1" max="10" step="1" value="2" style="width: 100%; cursor: pointer;">
+              </div>
+              <div style="display: flex; flex-direction: column; gap: 4px;">
+                <label style="display: flex; justify-content: space-between; font-size: 0.72rem; color: #9ca3af;">
+                  Detail Tokens: <span id="detail-tokens-val" style="font-weight: bold; color: #a78bfa;">500</span>
+                </label>
+                <input type="range" id="detail-tokens-slider" min="100" max="2000" step="50" value="500" style="width: 100%; cursor: pointer;">
+              </div>
+              <div style="display: flex; flex-direction: column; gap: 4px;">
+                <label style="display: flex; justify-content: space-between; font-size: 0.72rem; color: #9ca3af;">
+                  Detail Sentences: <span id="detail-sentences-val" style="font-weight: bold; color: #a78bfa;">5</span>
+                </label>
+                <input type="range" id="detail-sentences-slider" min="1" max="15" step="1" value="5" style="width: 100%; cursor: pointer;">
+              </div>
+            </div>
+
+            <!-- Group 2: Speech Synthesis (TTS) & Voice Speed -->
+            <div id="grp-voice" class="ctrl-grp-card" style="background: rgba(255,255,255,0.02); padding: 14px; border-radius: 12px; border: 1px solid rgba(16,185,129,0.3); display: flex; flex-direction: column; gap: 10px;">
+              <div style="display: flex; justify-content: space-between; align-items: center;">
+                <span style="font-weight: 700; color: #10b981; font-size: 0.78rem; text-transform: uppercase;">🔊 Voice & Audio Synthesis</span>
+                <span style="font-size: 0.65rem; background: rgba(16,185,129,0.15); color: #34d399; padding: 2px 6px; border-radius: 4px;">Human Cadence</span>
+              </div>
+              <div style="display: flex; flex-direction: column; gap: 4px;">
+                <label style="display: flex; justify-content: space-between; font-size: 0.72rem; color: #9ca3af;">
+                  Speech Rate: <span id="speech-rate-val" style="font-weight: bold; color: #10b981;">1.0x</span>
+                </label>
+                <input type="range" id="speech-rate-slider" min="0.5" max="2.0" step="0.1" value="1.0" style="width: 100%; cursor: pointer;">
+              </div>
+              <div style="display: flex; flex-direction: column; gap: 4px;">
+                <label style="display: flex; justify-content: space-between; font-size: 0.72rem; color: #9ca3af;">
+                  Volume: <span id="tts-volume-val" style="font-weight: bold; color: #10b981;">100%</span>
+                </label>
+                <input type="range" id="tts-volume-slider" min="0" max="100" step="5" value="100" style="width: 100%; cursor: pointer;">
+              </div>
+              <div style="display: flex; flex-direction: column; gap: 2px;">
+                <label style="font-size: 0.72rem; color: #9ca3af;">TTS Model:</label>
+                <select id="tts-voice-select" style="background: rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.1); color: #fff; padding: 5px 8px; border-radius: 6px; font-size: 0.72rem; width: 100%; cursor: pointer;">
+                  <option value="sonic-english">Sonic English (Natural Human Default)</option>
+                  <option value="sonic-multilingual">Sonic Multilingual</option>
+                  <option value="cartesia-standard">Cartesia Neural</option>
+                </select>
+              </div>
+            </div>
+
+            <!-- Group 3: Speech Recognition (STT) & Mic Bar -->
+            <div id="grp-stt" class="ctrl-grp-card" style="background: rgba(255,255,255,0.02); padding: 14px; border-radius: 12px; border: 1px solid rgba(245,158,11,0.3); display: flex; flex-direction: column; gap: 10px;">
+              <div style="display: flex; justify-content: space-between; align-items: center;">
+                <span style="font-weight: 700; color: #f59e0b; font-size: 0.78rem; text-transform: uppercase;">🎙�? STT & VAD Sensitivity</span>
+                <span style="font-size: 0.65rem; background: rgba(245,158,11,0.15); color: #fcd34d; padding: 2px 6px; border-radius: 4px;">Pause Allowance</span>
+              </div>
+              <div style="display: flex; flex-direction: column; gap: 2px;">
+                <label style="font-size: 0.72rem; color: #9ca3af;">STT Language:</label>
+                <select id="stt-lang-select" style="background: rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.1); color: #fff; padding: 5px 8px; border-radius: 6px; font-size: 0.72rem; width: 100%; cursor: pointer;">
+                  <option value="en-US">English (US)</option>
+                  <option value="hi-IN">Hindi (hi-IN)</option>
+                  <option value="es-ES">Spanish (es-ES)</option>
+                  <option value="fr-FR">French (fr-FR)</option>
+                  <option value="de-DE">German (de-DE)</option>
+                </select>
+              </div>
+              <div style="display: flex; flex-direction: column; gap: 4px;">
+                <label style="display: flex; justify-content: space-between; font-size: 0.72rem; color: #9ca3af;">
+                  VAD Silence Timeout: <span id="vad-silence-val" style="font-weight: bold; color: #f59e0b;">450ms</span>
+                </label>
+                <input type="range" id="vad-silence-slider" min="200" max="1500" step="50" value="450" style="width: 100%; cursor: pointer;">
+              </div>
+              <div style="margin-top: 2px;">
+                <div style="font-size:0.68rem; color:var(--text-secondary); margin-bottom:3px; font-weight:600; text-transform:uppercase;">🎙�? Live Mic Energy</div>
+                <div style="background:rgba(255,255,255,0.05); border-radius:4px; height:6px; overflow:hidden;">
+                  <div id="mic-energy-bar" style="height:100%; width:0%; background:linear-gradient(90deg,#10b981,#3b82f6); border-radius:4px; transition:width 50ms linear;"></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Group 4: Delay & Latency Timing Controls -->
+            <div id="grp-latency" class="ctrl-grp-card" style="background: rgba(255,255,255,0.02); padding: 14px; border-radius: 12px; border: 1px solid rgba(236,72,153,0.3); display: flex; flex-direction: column; gap: 10px;">
+              <div style="display: flex; justify-content: space-between; align-items: center;">
+                <span style="font-weight: 700; color: #ec4899; font-size: 0.78rem; text-transform: uppercase;">�?��? Human Interruption & Delays</span>
+                <span style="font-size: 0.65rem; background: rgba(236,72,153,0.15); color: #f472b6; padding: 2px 6px; border-radius: 4px;">Natural Cutoff</span>
+              </div>
+              <div style="display: flex; flex-direction: column; gap: 4px;">
+                <label style="display: flex; justify-content: space-between; font-size: 0.72rem; color: #9ca3af;">
+                  Barge-in Cutoff Delay: <span id="bargein-delay-val" style="font-weight: bold; color: #ec4899;">0ms</span>
+                </label>
+                <input type="range" id="bargein-delay-slider" min="0" max="500" step="25" value="0" style="width: 100%; cursor: pointer;">
+              </div>
+              <div style="display: flex; flex-direction: column; gap: 4px;">
+                <label style="display: flex; justify-content: space-between; font-size: 0.72rem; color: #9ca3af;">
+                  Audio Chunk Buffer: <span id="chunk-buffer-val" style="font-weight: bold; color: #ec4899;">30ms</span>
+                </label>
+                <input type="range" id="chunk-buffer-slider" min="0" max="200" step="10" value="30" style="width: 100%; cursor: pointer;">
+              </div>
+              <div style="display: flex; flex-direction: column; gap: 2px;">
+                <label style="font-size: 0.72rem; color: #9ca3af;">Interruption Cutoff Mode:</label>
+                <select id="cutoff-mode-select" style="background: rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.1); color: #fff; padding: 5px 8px; border-radius: 6px; font-size: 0.72rem; width: 100%; cursor: pointer;">
+                  <option value="soft" selected>Soft Audio Fade (50ms - Human Natural)</option>
+                  <option value="instant">Instant Silence (0ms - Hard Cutoff)</option>
+                </select>
+              </div>
+            </div>
+
+          </div>
         </div>
 
         <!-- Telemetry Feed Log -->
-        <div style="background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.05); border-radius: 12px; padding: 14px;">
-          <h5 style="color:var(--text-secondary); margin-bottom: 8px; font-weight:600; text-transform:uppercase; font-size: 0.75rem;">📊 Real-time Telemetry Event Feed</h5>
-          <div id="telemetry-feed" style="max-height: 120px; overflow-y: auto; font-family: monospace; font-size: 0.75rem; display: flex; flex-direction: column; gap: 4px; padding: 8px; background: rgba(0,0,0,0.2); border-radius: 8px;"></div>
+        <div style="background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.05); border-radius: 12px; padding: 10px 14px;">
+          <h5 style="color:var(--text-secondary); margin-bottom: 6px; font-weight:700; text-transform:uppercase; font-size: 0.7rem; letter-spacing: 0.5px;">📊 Telemetry Event Stream</h5>
+          <div id="telemetry-feed" style="max-height: 80px; overflow-y: auto; font-family: monospace; font-size: 0.72rem; display: flex; flex-direction: column; gap: 3px; padding: 6px; background: rgba(0,0,0,0.2); border-radius: 6px;"></div>
         </div>
-
-      </div>
-
-      <!-- Three Panel Layout -->
-      <div class="three-panel-grid">
-        <!-- LEFT PANEL: LOGS -->
-        <section class="panel panel-log" aria-label="System Logs">
-          <div class="panel-header">
-            <h2 class="panel-title">System Logs</h2>
-            <div class="panel-actions">
-              <button class="btn-icon" id="clear-logs-btn" title="Clear logs">🗑️ Clear</button>
-              <button class="btn-icon" id="pause-logs-btn" title="Pause/resume log updates">⏸️ Pause</button>
-            </div>
-          </div>
-          <div id="log-panel" role="log" aria-live="polite" aria-label="System telemetry logs">
-            <div class="log-entry">
-              <span class="log-time">System</span>
-              <span class="log-badge system">System</span>
-              <span class="log-text">Telemetry initialized. Tap Join Session to begin...</span>
-            </div>
-          </div>
-        </section>
-
-        <!-- CENTER PANEL: STT / USER SPEECH -->
-        <section class="panel panel-stt" aria-label="Speech Recognition Output">
-          <div class="panel-header">
-            <h2 class="panel-title">Your Speech (STT)</h2>
-          </div>
-          <div class="transcript-display">
-            <div class="transcript-card" id="stt-card">
-              <div class="transcript-label user">
-                <span class="status-indicator" id="stt-status" style="--status-color: #9ca3af;"></span>
-                You Said
-              </div>
-              <div class="transcript-text empty" id="user-transcript">Listening for your speech...</div>
-            </div>
-            <div class="transcript-card" id="interrupt-card" style="display: none;">
-              <div class="transcript-label user" style="color: #f59e0b;">
-                <span class="status-indicator" style="--status-color: #f59e0b;"></span>
-                Interrupted / Barge-in
-              </div>
-              <div class="transcript-text" id="interrupt-text"></div>
-            </div>
-          </div>
-        </section>
-
-        <!-- RIGHT PANEL: LLM RESPONSE -->
-        <section class="panel panel-llm" aria-label="LLM Response Output">
-          <div class="panel-header">
-            <h2 class="panel-title">Agent Response (LLM)</h2>
-          </div>
-          <div class="llm-content">
-            <div class="llm-response-card" id="llm-card">
-              <div class="llm-meta">
-                <div class="llm-meta-item">
-                  <span class="llm-meta-label">Model:</span>
-                  <span class="llm-meta-value" id="llm-model">-</span>
-                </div>
-                <div class="llm-meta-item">
-                  <span class="llm-meta-label">Tokens:</span>
-                  <span class="llm-meta-value" id="llm-tokens">-</span>
-                </div>
-                <div class="llm-meta-item">
-                  <span class="llm-meta-label">TTFB:</span>
-                  <span class="llm-meta-value" id="llm-ttfb">-</span>
-                </div>
-                <div class="llm-meta-item">
-                  <span class="llm-meta-label">Latency:</span>
-                  <span class="llm-meta-value" id="llm-latency">-</span>
-                </div>
-              </div>
-              <div class="llm-response-text empty" id="agent-response">Waiting for query...</div>
-            </div>
-          </div>
-        </section>
       </div>
     </div>
+
+    <!-- Collapsible Vertical Side Drawer Panel (Session Controls from Photo) -->
+    <div id="side-drawer" style="position: fixed; top: 0; right: 0; width: 280px; height: 100vh; background: rgba(15, 23, 42, 0.95); border-left: 1px solid rgba(255,255,255,0.1); backdrop-filter: blur(24px); box-shadow: -10px 0 30px rgba(0,0,0,0.5); transform: translateX(100%); transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1); z-index: 9999; padding: 20px; display: flex; flex-direction: column; justify-content: space-between;">
+      <div>
+        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 14px; margin-bottom: 20px;">
+          <h3 style="font-size: 0.95rem; font-weight: 700; color: #fff; margin: 0; display: flex; align-items: center; gap: 8px;">🎛�? Session Controls</h3>
+          <button id="close-drawer-btn" style="background: none; border: none; color: #9ca3af; font-size: 1.2rem; cursor: pointer; padding: 4px;">✕</button>
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 12px;">
+          <button class="btn-icon" id="ctrl-mute-btn" style="padding: 10px; font-size: 0.8rem; border-radius: 8px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: #fff; text-align: left; display: flex; align-items: center; gap: 8px; cursor: pointer;">🔇 Mute Mic</button>
+          <button class="btn-icon" id="ctrl-unmute-btn" style="display:none; padding: 10px; font-size: 0.8rem; border-radius: 8px; background: rgba(16,185,129,0.15); border: 1px solid #10b981; color: #34d399; text-align: left; align-items: center; gap: 8px; cursor: pointer;">🎤 Unmute Mic</button>
+          
+          <button class="btn-icon" id="ctrl-stt-toggle-btn" style="padding: 10px; font-size: 0.8rem; border-radius: 8px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: #fff; text-align: left; display: flex; align-items: center; gap: 8px; cursor: pointer;">�?� Stop STT</button>
+          <button class="btn-icon" id="ctrl-stt-start-btn" style="display:none; padding: 10px; font-size: 0.8rem; border-radius: 8px; background: rgba(59,130,246,0.15); border: 1px solid #3b82f6; color: #60a5fa; text-align: left; align-items: center; gap: 8px; cursor: pointer;">▶ Start STT</button>
+          
+          <button class="btn-icon" id="master-interrupt-btn" style="padding: 10px; font-size: 0.8rem; border-radius: 8px; background: rgba(239,68,68,0.2); border: 1px solid #ef4444; color: #f87171; text-align: left; display: flex; align-items: center; gap: 8px; cursor: pointer;">🛑 Stop / Interrupt Turn</button>
+          <button class="btn-icon" id="ctrl-cancel-btn" style="display:none;"></button>
+          
+          <button class="btn-icon" id="ctrl-reset-btn" style="padding: 10px; font-size: 0.8rem; border-radius: 8px; background: rgba(245,158,11,0.15); border: 1px solid #f59e0b; color: #fbbf24; text-align: left; display: flex; align-items: center; gap: 8px; cursor: pointer;">🔄 Reset Session</button>
+          <button class="btn-icon" id="ctrl-reconnect-btn" style="padding: 10px; font-size: 0.8rem; border-radius: 8px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: #fff; text-align: left; display: flex; align-items: center; gap: 8px; cursor: pointer;">🔗 Reconnect</button>
+          <button class="btn-icon" id="ctrl-shutdown-btn" style="padding: 10px; font-size: 0.8rem; border-radius: 8px; background: rgba(239,68,68,0.25); border: 1px solid #dc2626; color: #ef4444; text-align: left; display: flex; align-items: center; gap: 8px; cursor: pointer;">⚡ Shutdown API</button>
+        </div>
+      </div>
+      <div style="font-size: 0.7rem; color: #6b7280; text-align: center;">Click anywhere outside to close</div>
+    </div>
+    <div id="drawer-backdrop" style="position: fixed; inset: 0; background: rgba(0,0,0,0.4); backdrop-filter: blur(4px); opacity: 0; pointer-events: none; transition: opacity 0.3s ease; z-index: 9998;"></div>
+
+    <!-- System Logs Toggleable Modal -->
+    <div id="logs-modal" style="position: fixed; inset: 0; background: rgba(0,0,0,0.6); backdrop-filter: blur(8px); opacity: 0; pointer-events: none; transition: opacity 0.3s ease; z-index: 9999; display: flex; align-items: center; justify-content: center; padding: 20px;">
+      <div style="background: rgba(15, 23, 42, 0.95); border: 1px solid rgba(255,255,255,0.1); border-radius: 20px; width: 100%; max-width: 700px; height: 80vh; padding: 20px; display: flex; flex-direction: column; gap: 14px; box-shadow: 0 20px 50px rgba(0,0,0,0.6);">
+        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 10px;">
+          <h3 style="font-size: 1rem; font-weight: 700; color: #fff; margin: 0; display: flex; align-items: center; gap: 8px;">📋 System Telemetry Logs</h3>
+          <div style="display: flex; gap: 8px; align-items: center;">
+            <button class="btn-icon" id="clear-logs-btn" title="Clear logs" style="padding: 4px 10px; font-size: 0.72rem;">🗑�? Clear</button>
+            <button class="btn-icon" id="pause-logs-btn" title="Pause/resume log updates" style="padding: 4px 10px; font-size: 0.72rem;">�?��? Pause</button>
+            <button id="close-logs-modal-btn" style="background: none; border: none; color: #9ca3af; font-size: 1.2rem; cursor: pointer; padding: 4px; margin-left: 8px;">✕</button>
+          </div>
+        </div>
+        <div id="log-panel" role="log" aria-live="polite" aria-label="System telemetry logs" style="flex: 1; overflow-y: auto; background: rgba(0,0,0,0.3); border-radius: 12px; padding: 12px; font-family: monospace; font-size: 0.78rem;">
+          <div class="log-entry">
+            <span class="log-time">System</span>
+            <span class="log-badge system">System</span>
+            <span class="log-text">Telemetry initialized. Tap Join Session to begin...</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- �?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�? -->
+    <!-- DOCS MODAL                                  -->
+    <!-- �?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�? -->
+    <div id="docs-modal" style="position:fixed;inset:0;background:rgba(0,0,0,0.65);backdrop-filter:blur(10px);opacity:0;pointer-events:none;transition:opacity 0.3s ease;z-index:9999;display:flex;align-items:center;justify-content:center;padding:24px;">
+      <div style="background:rgba(10,17,30,0.97);border:1px solid rgba(255,255,255,0.1);border-radius:22px;width:100%;max-width:860px;max-height:90vh;overflow-y:auto;padding:32px;display:flex;flex-direction:column;gap:22px;box-shadow:0 30px 80px rgba(0,0,0,0.7);">
+
+        <!-- Header -->
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+          <div>
+            <h2 style="font-family:'Space Grotesk',sans-serif;font-size:1.4rem;font-weight:700;color:#f3f4f6;margin:0;display:flex;align-items:center;gap:10px;">📖 Pivot Reference Guide</h2>
+            <p style="font-size:0.8rem;color:#6b7280;margin-top:4px;">Controls explained in plain English + how the voice pipeline works.</p>
+          </div>
+          <button id="close-docs-modal-btn" style="background:none;border:none;color:#9ca3af;font-size:1.4rem;cursor:pointer;padding:4px;flex-shrink:0;">✕</button>
+        </div>
+
+        <!-- Tab bar -->
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button onclick="docsTab('controls')" id="docs-tab-controls" style="padding:7px 16px;border-radius:8px;font-size:0.8rem;font-weight:700;cursor:pointer;border:1px solid rgba(59,130,246,0.5);background:rgba(59,130,246,0.2);color:#60a5fa;transition:all 0.2s;">🎛�? Controls Reference</button>
+          <button onclick="docsTab('pipeline')" id="docs-tab-pipeline" style="padding:7px 16px;border-radius:8px;font-size:0.8rem;font-weight:700;cursor:pointer;border:1px solid rgba(255,255,255,0.08);background:rgba(255,255,255,0.03);color:#9ca3af;transition:all 0.2s;">🔗 How It Works</button>
+        </div>
+
+        <!-- ─── TAB: CONTROLS REFERENCE ─── -->
+        <div id="docs-pane-controls">
+
+          <!-- ① LLM Intelligence -->
+          <div style="background:rgba(59,130,246,0.07);border:1px solid rgba(59,130,246,0.25);border-radius:14px;padding:20px;margin-bottom:16px;">
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;">
+              <span style="font-size:1.1rem;">🧠</span>
+              <h3 style="font-size:0.95rem;font-weight:700;color:#60a5fa;margin:0;">LLM Intelligence</h3>
+              <span style="font-size:0.65rem;background:rgba(59,130,246,0.15);color:#60a5fa;padding:2px 8px;border-radius:4px;">Human Response Bounds</span>
+            </div>
+            <p style="font-size:0.82rem;color:#9ca3af;margin:0 0 14px 0;line-height:1.6;">Controls how much the AI says in each turn. <em>Normal</em> settings apply to quick back-and-forth. <em>Detail</em> settings kick in automatically when you ask for an explanation or say "tell me more".</p>
+            <table style="width:100%;border-collapse:collapse;font-size:0.8rem;">
+              <thead><tr style="border-bottom:1px solid rgba(255,255,255,0.08);">
+                <th style="text-align:left;padding:6px 10px;color:#6b7280;font-weight:600;width:40%;">Control</th>
+                <th style="text-align:left;padding:6px 10px;color:#6b7280;font-weight:600;">What it does &amp; recommended range</th>
+              </tr></thead>
+              <tbody style="color:#d1d5db;">
+                <tr style="border-bottom:1px solid rgba(255,255,255,0.04);">
+                  <td style="padding:8px 10px;"><strong style="color:#60a5fa;">Normal Tokens</strong><br><span style="font-size:0.7rem;color:#6b7280;">50 – 1000</span></td>
+                  <td style="padding:8px 10px;">Max number of words (tokens) in a normal reply. <strong>100–200</strong> keeps answers short and conversational — ideal for a real-time voice agent. Higher values allow longer answers but increase latency.</td>
+                </tr>
+                <tr style="border-bottom:1px solid rgba(255,255,255,0.04);">
+                  <td style="padding:8px 10px;"><strong style="color:#60a5fa;">Normal Sentences</strong><br><span style="font-size:0.7rem;color:#6b7280;">1 – 10</span></td>
+                  <td style="padding:8px 10px;">Max sentences the agent speaks before pausing. <strong>2–3</strong> feels like natural speech. More sentences = longer monologues. The agent streams each sentence to TTS as it's generated — this controls how many it will generate before stopping.</td>
+                </tr>
+                <tr style="border-bottom:1px solid rgba(255,255,255,0.04);">
+                  <td style="padding:8px 10px;"><strong style="color:#a78bfa;">Detail Tokens</strong><br><span style="font-size:0.7rem;color:#6b7280;">100 – 2000</span></td>
+                  <td style="padding:8px 10px;">Token cap used when you ask for a detailed explanation. <strong>500–800</strong> gives thorough answers without being too long. Triggered automatically by keywords like "explain", "tell me more", "how does".</td>
+                </tr>
+                <tr>
+                  <td style="padding:8px 10px;"><strong style="color:#a78bfa;">Detail Sentences</strong><br><span style="font-size:0.7rem;color:#6b7280;">1 – 15</span></td>
+                  <td style="padding:8px 10px;">Sentence cap for detail mode. <strong>5–8</strong> gives a thorough but not exhausting answer. Works together with Detail Tokens — whichever limit is hit first stops the reply.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- ② Voice & Audio Synthesis -->
+          <div style="background:rgba(16,185,129,0.07);border:1px solid rgba(16,185,129,0.25);border-radius:14px;padding:20px;margin-bottom:16px;">
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;">
+              <span style="font-size:1.1rem;">🔊</span>
+              <h3 style="font-size:0.95rem;font-weight:700;color:#34d399;margin:0;">Voice &amp; Audio Synthesis</h3>
+              <span style="font-size:0.65rem;background:rgba(16,185,129,0.15);color:#34d399;padding:2px 8px;border-radius:4px;">Human Cadence</span>
+            </div>
+            <p style="font-size:0.82rem;color:#9ca3af;margin:0 0 14px 0;line-height:1.6;">Controls how the agent's voice sounds in your browser. These are applied to the raw PCM audio chunks delivered by Cartesia TTS before playback.</p>
+            <table style="width:100%;border-collapse:collapse;font-size:0.8rem;">
+              <thead><tr style="border-bottom:1px solid rgba(255,255,255,0.08);">
+                <th style="text-align:left;padding:6px 10px;color:#6b7280;font-weight:600;width:40%;">Control</th>
+                <th style="text-align:left;padding:6px 10px;color:#6b7280;font-weight:600;">What it does &amp; recommended range</th>
+              </tr></thead>
+              <tbody style="color:#d1d5db;">
+                <tr style="border-bottom:1px solid rgba(255,255,255,0.04);">
+                  <td style="padding:8px 10px;"><strong style="color:#34d399;">Speech Rate</strong><br><span style="font-size:0.7rem;color:#6b7280;">0.5× – 2.0×</span></td>
+                  <td style="padding:8px 10px;">How fast the agent talks. <strong>0.9×–1.1×</strong> sounds natural. Below 0.8× is noticeably slow; above 1.3× can feel rushed. Applied client-side via AudioBuffer playback rate — no extra latency.</td>
+                </tr>
+                <tr style="border-bottom:1px solid rgba(255,255,255,0.04);">
+                  <td style="padding:8px 10px;"><strong style="color:#34d399;">Volume</strong><br><span style="font-size:0.7rem;color:#6b7280;">0% – 100%</span></td>
+                  <td style="padding:8px 10px;">Output volume of the agent's voice. Does not affect your microphone. <strong>100%</strong> is default; reduce if you're using headphones and the agent is too loud.</td>
+                </tr>
+                <tr>
+                  <td style="padding:8px 10px;"><strong style="color:#34d399;">TTS Model</strong></td>
+                  <td style="padding:8px 10px;">Which Cartesia voice model synthesises the audio:<br>
+                    • <strong>Sonic English</strong> — best quality, lowest latency for English (default)<br>
+                    • <strong>Sonic Multilingual</strong> — supports mixed language / code-switching<br>
+                    • <strong>Cartesia Neural</strong> — standard neural voice, slightly higher latency
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- ③ STT & VAD Sensitivity -->
+          <div style="background:rgba(245,158,11,0.07);border:1px solid rgba(245,158,11,0.25);border-radius:14px;padding:20px;margin-bottom:16px;">
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;">
+              <span style="font-size:1.1rem;">🎙�?</span>
+              <h3 style="font-size:0.95rem;font-weight:700;color:#fcd34d;margin:0;">STT &amp; VAD Sensitivity</h3>
+              <span style="font-size:0.65rem;background:rgba(245,158,11,0.15);color:#fcd34d;padding:2px 8px;border-radius:4px;">Pause Allowance</span>
+            </div>
+            <p style="font-size:0.82rem;color:#9ca3af;margin:0 0 14px 0;line-height:1.6;">Controls how the browser detects when you speak and when you've finished. VAD = Voice Activity Detection.</p>
+            <table style="width:100%;border-collapse:collapse;font-size:0.8rem;">
+              <thead><tr style="border-bottom:1px solid rgba(255,255,255,0.08);">
+                <th style="text-align:left;padding:6px 10px;color:#6b7280;font-weight:600;width:40%;">Control</th>
+                <th style="text-align:left;padding:6px 10px;color:#6b7280;font-weight:600;">What it does &amp; recommended range</th>
+              </tr></thead>
+              <tbody style="color:#d1d5db;">
+                <tr style="border-bottom:1px solid rgba(255,255,255,0.04);">
+                  <td style="padding:8px 10px;"><strong style="color:#fcd34d;">STT Language</strong></td>
+                  <td style="padding:8px 10px;">The language passed to the browser's Web Speech API for recognition. <strong>English (US)</strong> gives the best accuracy. Set this to match the language you will speak — mixing languages requires Sonic Multilingual TTS model.</td>
+                </tr>
+                <tr style="border-bottom:1px solid rgba(255,255,255,0.04);">
+                  <td style="padding:8px 10px;"><strong style="color:#fcd34d;">VAD Silence Timeout</strong><br><span style="font-size:0.7rem;color:#6b7280;">200ms – 1500ms</span></td>
+                  <td style="padding:8px 10px;">How long the system waits after you stop speaking before it considers your utterance complete and sends it to the LLM. <strong>400–500ms</strong> feels natural. Too short (200ms) and mid-sentence pauses trigger early sends. Too long (1000ms+) makes the agent feel sluggish.</td>
+                </tr>
+                <tr>
+                  <td style="padding:8px 10px;"><strong style="color:#fcd34d;">Live Mic Energy</strong></td>
+                  <td style="padding:8px 10px;">Visual indicator only — shows your real-time microphone energy level. Useful for diagnosing mic input issues. No configuration needed.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- ④ Human Interruption & Delays -->
+          <div style="background:rgba(236,72,153,0.07);border:1px solid rgba(236,72,153,0.25);border-radius:14px;padding:20px;margin-bottom:16px;">
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;">
+              <span style="font-size:1.1rem;">�?��?</span>
+              <h3 style="font-size:0.95rem;font-weight:700;color:#f472b6;margin:0;">Human Interruption &amp; Delays</h3>
+              <span style="font-size:0.65rem;background:rgba(236,72,153,0.15);color:#f472b6;padding:2px 8px;border-radius:4px;">Natural Cutoff</span>
+            </div>
+            <p style="font-size:0.82rem;color:#9ca3af;margin:0 0 14px 0;line-height:1.6;">Controls what happens the instant you interrupt the agent mid-speech. These settings shape how "human" the cutoff feels — whether the agent stops abruptly or eases out gracefully.</p>
+            <table style="width:100%;border-collapse:collapse;font-size:0.8rem;">
+              <thead><tr style="border-bottom:1px solid rgba(255,255,255,0.08);">
+                <th style="text-align:left;padding:6px 10px;color:#6b7280;font-weight:600;width:40%;">Control</th>
+                <th style="text-align:left;padding:6px 10px;color:#6b7280;font-weight:600;">What it does &amp; recommended range</th>
+              </tr></thead>
+              <tbody style="color:#d1d5db;">
+                <tr style="border-bottom:1px solid rgba(255,255,255,0.04);">
+                  <td style="padding:8px 10px;"><strong style="color:#f472b6;">Barge-in Cutoff Delay</strong><br><span style="font-size:0.7rem;color:#6b7280;">0ms – 500ms</span></td>
+                  <td style="padding:8px 10px;">After VAD detects your voice, the system waits this long before cancelling the agent's speech. <strong>0ms</strong> = instant stop (most responsive). Higher values (100–200ms) give the agent a small grace period to finish the current word — can sound more natural but feels slower. For production use, keep at <strong>0–50ms</strong>.</td>
+                </tr>
+                <tr style="border-bottom:1px solid rgba(255,255,255,0.04);">
+                  <td style="padding:8px 10px;"><strong style="color:#f472b6;">Audio Chunk Buffer</strong><br><span style="font-size:0.7rem;color:#6b7280;">0ms – 200ms</span></td>
+                  <td style="padding:8px 10px;">A small buffer added to each audio chunk before scheduling it for playback. Helps smooth out gaps if the network has variable latency. <strong>20–40ms</strong> is the sweet spot. Too high adds noticeable delay. Too low risks audio glitches on poor connections.</td>
+                </tr>
+                <tr>
+                  <td style="padding:8px 10px;"><strong style="color:#f472b6;">Interruption Cutoff Mode</strong></td>
+                  <td style="padding:8px 10px;">How the agent's voice stops when you interrupt:<br>
+                    • <strong>Soft Audio Fade (50ms)</strong> — the agent's voice fades out in 50ms. Sounds natural and human. <em>(Recommended)</em><br>
+                    • <strong>Instant Silence (0ms)</strong> — the audio stops dead immediately. More robotic but guarantees zero bleed-over.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- ⑤ Session Controls (side drawer) -->
+          <div style="background:rgba(139,92,246,0.07);border:1px solid rgba(139,92,246,0.25);border-radius:14px;padding:20px;">
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;">
+              <span style="font-size:1.1rem;">🎛�?</span>
+              <h3 style="font-size:0.95rem;font-weight:700;color:#a78bfa;margin:0;">Session Controls Panel <span style="font-size:0.72rem;font-weight:400;color:#6b7280;">(⚙�? button → side drawer)</span></h3>
+            </div>
+            <p style="font-size:0.82rem;color:#9ca3af;margin:0 0 14px 0;line-height:1.6;">Live controls you can hit during a session. Open the side drawer with the <strong>⚙�? Session Controls Panel</strong> button in the header.</p>
+            <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px;">
+              <div style="background:rgba(0,0,0,0.3);border-radius:10px;padding:12px;">
+                <div style="font-size:0.8rem;font-weight:700;color:#a78bfa;margin-bottom:4px;">🔇 Mute / 🎤 Unmute Mic</div>
+                <div style="font-size:0.75rem;color:#9ca3af;">Silences your microphone without disconnecting. The agent will not detect your voice until you unmute.</div>
+              </div>
+              <div style="background:rgba(0,0,0,0.3);border-radius:10px;padding:12px;">
+                <div style="font-size:0.8rem;font-weight:700;color:#60a5fa;margin-bottom:4px;">�?� Stop / ▶ Start STT</div>
+                <div style="font-size:0.75rem;color:#9ca3af;">Pauses the speech recogniser entirely. Useful if you're in a noisy environment and want to stop false activations.</div>
+              </div>
+              <div style="background:rgba(0,0,0,0.3);border-radius:10px;padding:12px;">
+                <div style="font-size:0.8rem;font-weight:700;color:#f87171;margin-bottom:4px;">🛑 Stop / Interrupt Turn</div>
+                <div style="font-size:0.75rem;color:#9ca3af;">Immediately cancels the agent's current reply — same as interrupting with your voice, but via button. Useful in testing or when mic VAD isn't triggering.</div>
+              </div>
+              <div style="background:rgba(0,0,0,0.3);border-radius:10px;padding:12px;">
+                <div style="font-size:0.8rem;font-weight:700;color:#fbbf24;margin-bottom:4px;">🔄 Reset Session</div>
+                <div style="font-size:0.75rem;color:#9ca3af;">Clears the conversation history for the current session. The agent forgets what was said. Useful to start a fresh topic without reconnecting.</div>
+              </div>
+              <div style="background:rgba(0,0,0,0.3);border-radius:10px;padding:12px;">
+                <div style="font-size:0.8rem;font-weight:700;color:#d1d5db;margin-bottom:4px;">🔗 Reconnect</div>
+                <div style="font-size:0.75rem;color:#9ca3af;">Re-establishes the WebRTC / WebSocket connection if it dropped without refreshing the page.</div>
+              </div>
+              <div style="background:rgba(0,0,0,0.3);border-radius:10px;padding:12px;">
+                <div style="font-size:0.8rem;font-weight:700;color:#ef4444;margin-bottom:4px;">⚡ Shutdown API</div>
+                <div style="font-size:0.75rem;color:#9ca3af;">Sends a shutdown signal to the backend server process. Use only intentionally — this ends all active sessions.</div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- ─── TAB: HOW IT WORKS ─── -->
+        <div id="docs-pane-pipeline" style="display:none;flex-direction:column;gap:16px;">
+
+          <div style="background:rgba(59,130,246,0.07);border:1px solid rgba(59,130,246,0.2);border-radius:14px;padding:20px;">
+            <h3 style="font-size:1rem;font-weight:700;color:#60a5fa;margin:0 0 12px 0;">🔗 The Voice Pipeline (What Happens When You Speak)</h3>
+            <p style="font-size:0.85rem;color:#d1d5db;line-height:1.7;margin:0 0 10px 0;">Every time you say something, Pivot runs your words through a chain of workers in sequence:</p>
+            <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;">
+              <div style="background:rgba(0,0,0,0.3);border-radius:10px;padding:12px;text-align:center;"><div style="font-size:1.2rem;">🎙�?</div><div style="font-size:0.78rem;font-weight:700;color:#10b981;margin-top:4px;">STT Worker</div><div style="font-size:0.72rem;color:#9ca3af;margin-top:2px;">Turns spoken words into text</div></div>
+              <div style="background:rgba(0,0,0,0.3);border-radius:10px;padding:12px;text-align:center;"><div style="font-size:1.2rem;">🧠</div><div style="font-size:0.78rem;font-weight:700;color:#a78bfa;margin-top:4px;">FSM Worker</div><div style="font-size:0.72rem;color:#9ca3af;margin-top:2px;">Decides what to do next (new reply, interrupt, etc.)</div></div>
+              <div style="background:rgba(0,0,0,0.3);border-radius:10px;padding:12px;text-align:center;"><div style="font-size:1.2rem;">💬</div><div style="font-size:0.78rem;font-weight:700;color:#f59e0b;margin-top:4px;">LLM Worker</div><div style="font-size:0.72rem;color:#9ca3af;margin-top:2px;">Streams reply sentence-by-sentence</div></div>
+              <div style="background:rgba(0,0,0,0.3);border-radius:10px;padding:12px;text-align:center;"><div style="font-size:1.2rem;">🔊</div><div style="font-size:0.78rem;font-weight:700;color:#ec4899;margin-top:4px;">TTS Worker</div><div style="font-size:0.72rem;color:#9ca3af;margin-top:2px;">Converts each sentence to audio</div></div>
+              <div style="background:rgba(0,0,0,0.3);border-radius:10px;padding:12px;text-align:center;"><div style="font-size:1.2rem;">📡</div><div style="font-size:0.78rem;font-weight:700;color:#38bdf8;margin-top:4px;">Playback Worker</div><div style="font-size:0.72rem;color:#9ca3af;margin-top:2px;">Streams audio chunks to browser</div></div>
+              <div style="background:rgba(0,0,0,0.3);border-radius:10px;padding:12px;text-align:center;"><div style="font-size:1.2rem;">⚡</div><div style="font-size:0.78rem;font-weight:700;color:#ef4444;margin-top:4px;">Interrupt Monitor</div><div style="font-size:0.72rem;color:#9ca3af;margin-top:2px;">Cancels current turn instantly when you speak</div></div>
+            </div>
+          </div>
+
+          <div style="background:rgba(167,139,250,0.07);border:1px solid rgba(167,139,250,0.2);border-radius:14px;padding:20px;">
+            <h3 style="font-size:1rem;font-weight:700;color:#a78bfa;margin:0 0 10px 0;">📊 Telemetry — Why Every Event Is Tracked</h3>
+            <p style="font-size:0.85rem;color:#d1d5db;line-height:1.7;margin:0 0 8px 0;">Every turn emits the same 11 events in order — whether normal, interrupted, or errored:</p>
+            <div style="font-family:monospace;font-size:0.78rem;color:#c4b5fd;background:rgba(0,0,0,0.35);border-radius:10px;padding:14px;line-height:1.9;">
+              VAD start → STT end → LLM request → LLM first token → LLM complete<br>→ TTS start → TTS chunk(s) → TTS complete → Playback start → Playback end → Turn complete
+            </div>
+            <p style="font-size:0.82rem;color:#9ca3af;margin-top:10px;line-height:1.6;">If a stage is cancelled, it records <code style="background:rgba(0,0,0,0.4);padding:1px 5px;border-radius:4px;">null</code> + a <code style="background:rgba(0,0,0,0.4);padding:1px 5px;border-radius:4px;">cancellation_reason</code> so the waterfall chart is always complete.</p>
+          </div>
+
+          <div style="background:rgba(239,68,68,0.07);border:1px solid rgba(239,68,68,0.2);border-radius:14px;padding:20px;">
+            <h3 style="font-size:1rem;font-weight:700;color:#f87171;margin:0 0 10px 0;">⚡ How Interruption Works</h3>
+            <ol style="font-size:0.85rem;color:#d1d5db;line-height:1.9;padding-left:18px;margin:0;">
+              <li>You speak → browser VAD fires instantly.</li>
+              <li>A cancel signal is sent to the server.</li>
+              <li>Server sets a per-session cancel flag — LLM + TTS workers stop immediately.</li>
+              <li>Browser increments a playback generation counter — buffered audio is discarded.</li>
+              <li>The turn is logged with a <code style="background:rgba(0,0,0,0.4);padding:1px 5px;border-radius:4px;">cancellation_reason</code>.</li>
+            </ol>
+          </div>
+
+          <div style="background:rgba(16,185,129,0.07);border:1px solid rgba(16,185,129,0.2);border-radius:14px;padding:20px;">
+            <h3 style="font-size:1rem;font-weight:700;color:#34d399;margin:0 0 10px 0;">🗂�? Code Structure</h3>
+            <table style="width:100%;border-collapse:collapse;font-size:0.8rem;">
+              <thead><tr style="border-bottom:1px solid rgba(255,255,255,0.08);"><th style="text-align:left;padding:6px 10px;color:#6b7280;font-weight:600;">File</th><th style="text-align:left;padding:6px 10px;color:#6b7280;font-weight:600;">What it does</th></tr></thead>
+              <tbody style="color:#d1d5db;">
+                <tr style="border-bottom:1px solid rgba(255,255,255,0.04);"><td style="padding:6px 10px;color:#34d399;font-family:monospace;">pipeline/messages.py</td><td style="padding:6px 10px;">All inter-worker message dataclasses</td></tr>
+                <tr style="border-bottom:1px solid rgba(255,255,255,0.04);"><td style="padding:6px 10px;color:#34d399;font-family:monospace;">pipeline/cancel_token.py</td><td style="padding:6px 10px;">Per-session cancellation flag checked by all workers</td></tr>
+                <tr style="border-bottom:1px solid rgba(255,255,255,0.04);"><td style="padding:6px 10px;color:#34d399;font-family:monospace;">js/audio_manager.js</td><td style="padding:6px 10px;">Decodes + queues audio, fade-out on interrupt</td></tr>
+                <tr style="border-bottom:1px solid rgba(255,255,255,0.04);"><td style="padding:6px 10px;color:#34d399;font-family:monospace;">js/stt_manager.js</td><td style="padding:6px 10px;">Browser VAD, SpeechRecognition, verbal stop-words</td></tr>
+                <tr style="border-bottom:1px solid rgba(255,255,255,0.04);"><td style="padding:6px 10px;color:#34d399;font-family:monospace;">js/telemetry_manager.js</td><td style="padding:6px 10px;">Polls server for metrics, renders waterfall chart</td></tr>
+                <tr><td style="padding:6px 10px;color:#34d399;font-family:monospace;">js/controls_manager.js</td><td style="padding:6px 10px;">Sliders, presets, settings save/fetch, tab switching</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div style="text-align:center;color:#4b5563;font-size:0.75rem;">Pivot Voice Agent — Reference Docs</div>
+      </div>
+    </div>
+
 
     <audio id="agent-audio" autoplay></audio>
 
-    <!-- Session Controls Panel — required by app.js for ctrl-* button IDs -->
-    <div style="background: var(--card-bg); border: 1px solid var(--card-border); border-radius: 16px; padding: 16px; margin-top: 12px; backdrop-filter: blur(16px);">
-      <h3 style="font-family:'Space Grotesk',sans-serif; font-size:0.9rem; color:var(--text-secondary); margin-bottom:12px; font-weight:600; text-transform:uppercase;">🎛️ Session Controls</h3>
-      <div style="display:flex; flex-wrap:wrap; gap:10px; align-items:center;">
-        <button class="btn-icon" id="ctrl-mute-btn">🔇 Mute Mic</button>
-        <button class="btn-icon" id="ctrl-unmute-btn" style="display:none;">🎤 Unmute Mic</button>
-        <button class="btn-icon" id="ctrl-stt-toggle-btn">⏸ Stop STT</button>
-        <button class="btn-icon" id="ctrl-stt-start-btn" style="display:none;">▶ Start STT</button>
-        <button class="btn-icon" id="ctrl-cancel-btn" style="color:#f87171;">⏹ Cancel Response</button>
-        <button class="btn-icon" id="ctrl-reset-btn" style="color:#fbbf24;">🔄 Reset Session</button>
-        <button class="btn-icon" id="ctrl-reconnect-btn">🔗 Reconnect</button>
-        <button class="btn-icon" id="ctrl-shutdown-btn" style="color:#ef4444;">⚡ Shutdown</button>
-      </div>
-      <!-- Mic energy bar -->
-      <div style="margin-top:12px;">
-        <div style="font-size:0.75rem; color:var(--text-secondary); margin-bottom:4px; font-weight:600; text-transform:uppercase;">🎙 Mic Input Level</div>
-        <div style="background:rgba(255,255,255,0.05); border-radius:4px; height:6px; overflow:hidden;">
-          <div id="mic-energy-bar" style="height:100%; width:0%; background:linear-gradient(90deg,#10b981,#3b82f6); border-radius:4px; transition:width 50ms linear;"></div>
-        </div>
-      </div>
-    </div>
+    <script src="js/globals.js"></script>
+    <script src="js/telemetry_manager.js"></script>
+    <script src="js/audio_manager.js"></script>
+    <script src="js/stt_manager.js"></script>
+    <script src="js/webrtc_manager.js"></script>
+    <script src="js/controls_manager.js"></script>
+    <script src="js/main.js"></script>
+    <script>
+      // Drawer toggle handlers
+      const sideDrawer = document.getElementById('side-drawer');
+      const drawerBackdrop = document.getElementById('drawer-backdrop');
+      const openDrawerBtn = document.getElementById('open-drawer-btn');
+      const closeDrawerBtn = document.getElementById('close-drawer-btn');
 
-    <script src="dashboard.js"></script>
-    <script src="app.js"></script>
+      function openDrawer() {
+        sideDrawer.style.transform = 'translateX(0)';
+        drawerBackdrop.style.opacity = '1';
+        drawerBackdrop.style.pointerEvents = 'auto';
+      }
+      function closeDrawer() {
+        sideDrawer.style.transform = 'translateX(100%)';
+        drawerBackdrop.style.opacity = '0';
+        drawerBackdrop.style.pointerEvents = 'none';
+      }
+
+      if (openDrawerBtn) openDrawerBtn.addEventListener('click', openDrawer);
+      if (closeDrawerBtn) closeDrawerBtn.addEventListener('click', closeDrawer);
+      if (drawerBackdrop) drawerBackdrop.addEventListener('click', closeDrawer);
+
+      // Logs modal handlers
+      const logsModal = document.getElementById('logs-modal');
+      const openLogsBtn = document.getElementById('toggle-logs-modal-btn');
+      const closeLogsBtn = document.getElementById('close-logs-modal-btn');
+
+      if (openLogsBtn) {
+        openLogsBtn.addEventListener('click', () => {
+          logsModal.style.opacity = '1';
+          logsModal.style.pointerEvents = 'auto';
+        });
+      }
+      if (closeLogsBtn) {
+        closeLogsBtn.addEventListener('click', () => {
+          logsModal.style.opacity = '0';
+          logsModal.style.pointerEvents = 'none';
+        });
+      }
+
+      // Docs modal handlers
+      const docsModal = document.getElementById('docs-modal');
+      const openDocsBtn = document.getElementById('toggle-docs-modal-btn');
+      const closeDocsBtn = document.getElementById('close-docs-modal-btn');
+
+      // Tab switching inside docs modal
+      function docsTab(name) {
+        const panes = ['controls', 'pipeline'];
+        panes.forEach(p => {
+          const pane = document.getElementById('docs-pane-' + p);
+          const btn  = document.getElementById('docs-tab-' + p);
+          if (!pane || !btn) return;
+          if (p === name) {
+            pane.style.display = 'flex';
+            btn.style.background = 'rgba(59,130,246,0.2)';
+            btn.style.border = '1px solid rgba(59,130,246,0.5)';
+            btn.style.color = '#60a5fa';
+          } else {
+            pane.style.display = 'none';
+            btn.style.background = 'rgba(255,255,255,0.03)';
+            btn.style.border = '1px solid rgba(255,255,255,0.08)';
+            btn.style.color = '#9ca3af';
+          }
+        });
+      }
+
+      function openDocsModal() {
+        docsModal.style.opacity = '1';
+        docsModal.style.pointerEvents = 'auto';
+        docsTab('controls'); // always open on Controls tab
+      }
+      function closeDocsModal() {
+        docsModal.style.opacity = '0';
+        docsModal.style.pointerEvents = 'none';
+      }
+
+      if (openDocsBtn) openDocsBtn.addEventListener('click', openDocsModal);
+      if (closeDocsBtn) closeDocsBtn.addEventListener('click', closeDocsModal);
+      if (docsModal) {
+        docsModal.addEventListener('click', (e) => {
+          if (e.target === docsModal) closeDocsModal();
+        });
+      }
+    </script>
   </body>
 </html>

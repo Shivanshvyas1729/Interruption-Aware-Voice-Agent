@@ -220,6 +220,13 @@ To prevent multiple concurrent identical queries from triggering parallel LLM ca
 ### 3.5 Streaming & Tool Exclusions
 * **Tool Exclusions**: The cache manager executes `is_cache_safe()`. If any message in the turn context contains keys like `"role": "tool"` or `"tool_calls"`, caching is skipped entirely. Tool-dependent flows are considered non-deterministic.
 * **Streaming Responses**: Only complete generations returned after streaming completes are stored. Interrupted, cancelled, or partial response generations are discarded and never cached.
+* **Turn-scoped Pipeline**: LLM responses stream via WebSocket as binary blobs, tagged with server turn IDs. Audio from stale (interrupted) turns is rejected at the client protocol level, solving race conditions without closing sockets.
+* **Unified 1-Page Dashboard**: Removed clunky accordions. Real-time telemetry feed, token billing counters, parameter sliders, latency waterfalls, and WebRTC diagnostics are all visible at once in a compact layout.
+* **Advanced Timing Controls**: Users can now tweak system sensitivities on the fly.
+  - **Barge-in Cutoff Delay**: Added an artificial adjustable buffer to evaluate user speech before terminating audio.
+  - **Cutoff Modes**: Choose between *Instant Silence* and *Soft Audio Fade* during interruptions.
+  - **VAD Timeout**: Tunable parameters linked directly to the application loop.
+* **Session Lifecycle Management**: Added a resilient "Leave Session" toggle. Users can join and cleanly sever STT/TTS channels without requiring page refreshes, automatically freeing up Web Audio API resources.
 
 ---
 

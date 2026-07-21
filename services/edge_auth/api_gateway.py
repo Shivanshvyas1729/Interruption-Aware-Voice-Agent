@@ -363,6 +363,34 @@ async def control_reset(req: ResetRequest):
     reset_token_budget(req.session_id)
     return {"status": "ok", "msg": "Session memory flushed, FSM reset, token budget cleared."}
 
+class LimitsRequest(BaseModel):
+    normal_max_tokens: int
+    normal_max_sentences: int
+    detail_max_tokens: int
+    detail_max_sentences: int
+    speech_rate: float = 1.0
+    stt_language: str = "en-US"
+    tts_voice: str = "sonic-english"
+
+@app.get("/control/limits")
+async def get_runtime_limits():
+    from common.config.runtime_limits import get_limits
+    return get_limits()
+
+@app.post("/control/limits")
+async def update_runtime_limits(req: LimitsRequest):
+    from common.config.runtime_limits import set_limits
+    set_limits(
+        req.normal_max_tokens,
+        req.normal_max_sentences,
+        req.detail_max_tokens,
+        req.detail_max_sentences,
+        req.speech_rate,
+        req.stt_language,
+        req.tts_voice
+    )
+    return {"status": "ok", "msg": "Limits updated successfully."}
+
 @app.post("/control/shutdown")
 async def control_shutdown():
     """Gracefully terminates the API Gateway process."""
