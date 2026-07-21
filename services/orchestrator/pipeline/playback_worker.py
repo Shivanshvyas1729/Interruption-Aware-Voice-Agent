@@ -180,6 +180,7 @@ class PlaybackWorker(PipelineStage):
                                 "turn_id": chunk.turn_id,
                                 "tokens": chunk.tokens,
                                 "latency_ms": chunk.latency_ms,
+                                "pause_duration_ms": getattr(chunk, "pause_duration_ms", 0),
                             }
                         )
 

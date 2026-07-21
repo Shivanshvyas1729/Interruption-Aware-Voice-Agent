@@ -47,6 +47,7 @@ class TextResponse:
     turn_id: int
     tokens: int = 0
     latency_ms: int = 0
+    pause_duration_ms: int = 0
 
 
 @dataclass

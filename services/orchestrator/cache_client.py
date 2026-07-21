@@ -24,6 +24,9 @@ class JaccardSimilarityStrategy(CacheStrategy):
         tokens2 = self._get_tokens(query2)
         if not tokens1 or not tokens2:
             return 0.0
+        # Require exact match if either query is short (< 4 tokens) to avoid false hits
+        if len(tokens1) < 4 or len(tokens2) < 4:
+            return 1.0 if tokens1 == tokens2 else 0.0
         return len(tokens1.intersection(tokens2)) / len(tokens1.union(tokens2))
 
 class CacheStore:
@@ -147,7 +150,7 @@ class CacheManager:
         This ensures cache entries are invalidated automatically when any of these components change.
         """
         recent_history = context_history[-3:-1] if len(context_history) > 2 else context_history[:-1]
-        hist_str = str(recent_history)
+        hist_str = f"len:{len(context_history)}:" + str(recent_history)
         sys_hash = hashlib.md5(system_prompt.encode('utf-8')).hexdigest()
         model_hash = hashlib.md5(model_name.encode('utf-8')).hexdigest()
         hist_hash = hashlib.md5(hist_str.encode('utf-8')).hexdigest()
@@ -166,7 +169,7 @@ class CacheManager:
         return True
 
     def lookup(self, session_id: str, turn_id: str, query: str, system_prompt: str, model_name: str, messages: list) -> Optional[str]:
-        if not self.is_cache_safe(messages):
+        if not self.is_cache_safe(messages) or len(query.strip().split()) < 3:
             return None
 
         cache_key = self._generate_cache_key(session_id, system_prompt, model_name, messages)
@@ -184,6 +187,9 @@ class CacheManager:
         
         for idx, entry in enumerate(entries):
             if time.time() > entry.get("expires_at", 0):
+                continue
+            # Enforce strict session_id match to prevent cross-session leaks
+            if entry.get("session_id") and entry.get("session_id") != session_id:
                 continue
             
             similarity = self.strategy.calculate_similarity(query, entry["query"])
@@ -244,6 +250,7 @@ class CacheManager:
 
         expires_at = time.time() + default_ttl
         entries.append({
+            "session_id": session_id,
             "query": query,
             "response": response,
             "expires_at": expires_at
@@ -257,6 +264,21 @@ class CacheManager:
             detail={"query": query}
         )
 
+    def clear_session_cache(self, session_id: str) -> None:
+        """Purge all cached entries partition-keyed for a specific session."""
+        if hasattr(self.store, 'lock') and hasattr(self.store, 'store'):
+            with self.store.lock:
+                prefix = f"cache:{session_id}:"
+                keys_to_del = [k for k in self.store.store.keys() if k.startswith(prefix)]
+                for k in keys_to_del:
+                    self.store._evict(k)
+                logger.log(
+                    event_name="cache_session_cleared",
+                    session_id=session_id,
+                    turn_id="system",
+                    detail={"cleared_keys": len(keys_to_del)}
+                )
+
 # Global singleton instances
 _default_strategy = JaccardSimilarityStrategy(threshold=0.8)
 _default_store = InMemoryCacheStore(max_size=100)
@@ -269,3 +291,6 @@ def lookup(session_id: str, turn_id: str, query: str, system_prompt: str = "", m
 def store(session_id: str, query: str, response: str, system_prompt: str = "", model_name: str = "", messages: list = None) -> None:
     msgs = messages or []
     cache_manager.store_result(session_id, query, response, system_prompt, model_name, msgs)
+
+def clear_session_cache(session_id: str) -> None:
+    cache_manager.clear_session_cache(session_id)

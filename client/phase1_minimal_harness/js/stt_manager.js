@@ -28,6 +28,7 @@ window.notifyBargeIn = async function() {
   window.awaitingNewTurn = true;
 
   window.stopAllQueuedAudio();
+  if (window.resumeAudioOnBargeIn) window.resumeAudioOnBargeIn();
   if (window.streamSocket && window.streamSocket.readyState === WebSocket.OPEN) {
     window.streamSocket.send(JSON.stringify({
       type: "cancel",
@@ -75,18 +76,26 @@ window.startSpeechRecognition = function() {
   window.recognition.onspeechstart = () => {
     const interruptStart = performance.now();
     window.speechStartTime = performance.now();
+    window.speechEndTime = 0; // reset
     window._sttAlreadySentForUtterance = false;
     window._sttLastInterim = "";
     console.log("[STT] Speech detected (VAD start)");
     window.renderLogEvent({ event: "vad_start", detail: { msg: "Speech detected" } });
     
-    const ids = ["wf-vad-start", "wf-stt-complete", "wf-llm-first-token", "wf-llm-complete", "wf-tts-first-audio", "wf-playback-start", "wf-playback-end", "wf-orch-start", "wf-tts-complete"];
-    ids.forEach(id => {
-      const el = document.getElementById(id);
-      if (el && el.parentElement) {
-        el.parentElement.style.opacity = "0.45";
-      }
-    });
+    if (window.clearWaterfall) {
+      window.clearWaterfall();
+    } else {
+      const ids = ["wf-vad-start", "wf-stt-complete", "wf-llm-first-token", "wf-llm-complete", "wf-tts-first-audio", "wf-playback-start", "wf-playback-end", "wf-orch-start", "wf-tts-complete"];
+      ids.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) {
+          el.textContent = "-";
+          if (el.parentElement) {
+            el.parentElement.style.opacity = "0.45";
+          }
+        }
+      });
+    }
     
     const vadStart = Math.round(performance.now() - window.speechStartTime);
     window.updateWaterfallEl("wf-vad-start", `+${vadStart}ms`);
@@ -123,6 +132,11 @@ window.startSpeechRecognition = function() {
       }
     }
   };
+
+  window.recognition.onspeechend = () => {
+    window.speechEndTime = performance.now();
+    console.log("[STT] Speech ended (VAD end)");
+  };
   
   // -----------------------------------------------------------------------
   // Core result handler — processes both interim and final results
@@ -137,6 +151,16 @@ window.startSpeechRecognition = function() {
       window._ttsFirstAudioFired = false;
       window._playbackStartFired = false;
       window._turnRecorded = false;
+      
+      const nowIst = window.formatIST ? window.formatIST() : new Date().toLocaleTimeString();
+      window._vadStartIso = nowIst;
+      window._sttCompleteIso = null;
+      window._llmFirstTokenIso = null;
+      window._llmCompleteIso = null;
+      window._ttsFirstAudioIso = null;
+      window._playbackStartIso = null;
+      window._playbackEndIso = null;
+
       if (window.clearWaterfall) window.clearWaterfall();
       if (window.updateWaterfallEl) window.updateWaterfallEl("wf-vad-start", "+0ms");
     }
@@ -144,7 +168,7 @@ window.startSpeechRecognition = function() {
     let interimText = "";
     let finalText = "";
 
-    for (let i = event.resultIndex; i < event.results.length; ++i) {
+    for (let i = 0; i < event.results.length; ++i) {
       const res = event.results[i];
       if (res.isFinal) {
         finalText += res[0].transcript;
@@ -170,7 +194,7 @@ window.startSpeechRecognition = function() {
           window._sttAlreadySentForUtterance = true;
           _dispatchTranscript(window._sttLastInterim);
         }
-      }, 1200);
+      }, window.GLOBAL_VAD_SILENCE || 450);
 
       return;
     }
@@ -197,6 +221,7 @@ window.startSpeechRecognition = function() {
   // -----------------------------------------------------------------------
   async function _dispatchTranscript(transcript) {
     const sttEndTime = performance.now();
+    window._sttCompleteIso = window.formatIST ? window.formatIST() : new Date().toLocaleTimeString();
     
     const lowerTranscript = transcript.toLowerCase();
     const explicitStopKeywords = ["stop", "wait stop", "stop now", "shut up", "quiet", "cancel", "stop speaking", "pause", "wait stop now"];
@@ -216,6 +241,10 @@ window.startSpeechRecognition = function() {
     const fallbackStt = window.VOICE_CONFIG.fallback_stt_latency || 180;
     const sttLatency = window.speechStartTime > 0 ? Math.round(sttEndTime - window.speechStartTime) : fallbackStt;
     window.localHistory.stt.push(sttLatency);
+    
+    const speechEndTimeVal = window.speechEndTime || (sttEndTime - 120);
+    const finalizationLatency = Math.max(10, Math.round(sttEndTime - speechEndTimeVal));
+    window._sttFinalizationMs = finalizationLatency;
     
     console.log(`[STT] Final transcript: "${transcript}" (STT latency: ${sttLatency}ms)`);
     window.updateWaterfallEl("wf-stt-complete", `+${sttLatency}ms`);

@@ -60,6 +60,61 @@ window.connectWebSocketStream = function() {
         if (tokensEl) tokensEl.textContent = msg.tokens || "-";
         if (latencyEl) latencyEl.textContent = (msg.latency_ms ? msg.latency_ms + "ms" : "-");
         
+        // Handle LLM-directed system pause command
+        if (msg.pause_duration_ms && msg.pause_duration_ms > 0) {
+          console.log("[Audio] Suspending playback for", msg.pause_duration_ms, "ms by LLM directive.");
+          window.renderLogEvent({ event: "system_pause", detail: { duration_ms: msg.pause_duration_ms } });
+          if (window.audioContext) {
+            window.audioContext.suspend().catch(e => console.warn(e));
+          }
+          if (window.pauseTimeout) clearTimeout(window.pauseTimeout);
+          if (window.countdownInterval) clearInterval(window.countdownInterval);
+
+          let remainingMs = msg.pause_duration_ms;
+          const updateTimerText = () => {
+            window.updateUIState("thinking", `Paused (${(remainingMs / 1000).toFixed(1)}s)...`);
+          };
+          updateTimerText();
+
+          window.countdownInterval = setInterval(() => {
+            remainingMs -= 100;
+            if (remainingMs <= 0) {
+              clearInterval(window.countdownInterval);
+              window.countdownInterval = null;
+            } else {
+              updateTimerText();
+            }
+          }, 100);
+
+          window.pauseTimeout = setTimeout(async () => {
+            if (window.countdownInterval) {
+              clearInterval(window.countdownInterval);
+              window.countdownInterval = null;
+            }
+            if (window.audioContext && window.audioContext.state === "suspended") {
+              await window.audioContext.resume().catch(e => console.warn(e));
+              window.updateUIState("speaking", "Speaking...");
+            }
+          }, msg.pause_duration_ms);
+        }
+        
+        window.resumeAudioOnBargeIn = async function() {
+          if (window.countdownInterval) {
+            clearInterval(window.countdownInterval);
+            window.countdownInterval = null;
+          }
+          if (window.pauseTimeout) {
+            clearTimeout(window.pauseTimeout);
+            window.pauseTimeout = null;
+          }
+          if (window.audioContext && window.audioContext.state === "suspended") {
+            await window.audioContext.resume().catch(e => console.warn(e));
+          }
+        };
+        
+        const nowIst = window.formatIST ? window.formatIST() : new Date().toLocaleTimeString();
+        window._llmFirstTokenIso = nowIst;
+        window._llmCompleteIso = nowIst;
         // Update waterfall offsets for LLM stage in WebSocket streaming path
         if (window.speechStartTime > 0) {
           const nowOff = Math.round(performance.now() - window.speechStartTime);
@@ -100,6 +155,7 @@ window.connectWebSocketStream = function() {
       // Update TTS first audio waterfall on the very first audio chunk of a turn
       if (!window._ttsFirstAudioFired) {
         window._ttsFirstAudioFired = true;
+        window._ttsFirstAudioIso = window.formatIST ? window.formatIST() : new Date().toLocaleTimeString();
         if (window.speechStartTime > 0) {
           const ttsOff = Math.round(performance.now() - window.speechStartTime);
           const sttOff = Math.round((window.timeOrchStart || 0));
@@ -201,6 +257,7 @@ window.decodeAndScheduleChunk = async function(arrayBuffer) {
     window.updateUIState("speaking", "Speaking...");
     
     if (window.dispatchTelemetryEvent && window.activeSources.length === 1) {
+      window._playbackStartIso = window.formatIST ? window.formatIST() : new Date().toLocaleTimeString();
       window.dispatchTelemetryEvent("playback_start", {});
       window.renderLogEvent({ event: "playback_started", detail: { source: "websocket_chunk" } });
       // Update playback start waterfall
@@ -214,6 +271,7 @@ window.decodeAndScheduleChunk = async function(arrayBuffer) {
       window.activeSources = window.activeSources.filter(s => s !== source);
       if (window.activeSources.length === 0) {
         console.log("[Audio] All audio chunks played");
+        window._playbackEndIso = window.formatIST ? window.formatIST() : new Date().toLocaleTimeString();
         window.renderLogEvent({ event: "playback_completed", detail: { source: "websocket_chunk" } });
         window.updateUIState("connected", "Listening...");
         // Update playback end waterfall

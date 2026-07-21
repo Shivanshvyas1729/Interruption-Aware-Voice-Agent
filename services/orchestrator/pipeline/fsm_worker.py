@@ -268,15 +268,15 @@ class FSMWorker(PipelineStage):
         history = load_history(msg.session_id)
 
         if state.resume_text:
-            history.append({
-                "role": "system",
-                "content": (
-                    "Note: The user interrupted your previous response. "
-                    "After addressing the user's latest query, please resume/"
-                    "incorporate the following unspoken points: "
-                    + state.resume_text
-                ),
-            })
+            if category in ("clarification", "continuation"):
+                history.append({
+                    "role": "system",
+                    "content": (
+                        "Note: The user interrupted your previous response. "
+                        "After addressing the user's latest query, please incorporate: "
+                        + state.resume_text
+                    ),
+                })
             state.resume_text = ""
 
         history.append({"role": "user", "content": msg.text})
@@ -333,9 +333,20 @@ class FSMWorker(PipelineStage):
                 detail={"text": msg.text[:60]},
             )
             state = self._get_session(msg.session_id)
-            state.current_reply = msg.text
+            
+            # Parse and strip system pause tag
+            import re
+            m = re.search(r"\[SYSTEM_PAUSE:\s*(\d+|AUTO)\]", msg.text, re.IGNORECASE)
+            pause_dur = 0
+            cleaned_text = msg.text
+            if m:
+                val = m.group(1)
+                pause_dur = 5000 if val.upper() == "AUTO" else int(val)
+                cleaned_text = re.sub(r"\[SYSTEM_PAUSE:\s*(\d+|AUTO)\]", "", msg.text, flags=re.IGNORECASE).strip()
+            
+            state.current_reply = cleaned_text
             self._pending_responses[(msg.session_id, msg.turn_id)] = {
-                "text": msg.text, "status": "pending"
+                "text": cleaned_text, "status": "pending"
             }
             logger.log(
                 "fsm_sending_to_tts", msg.session_id, str(msg.turn_id),
@@ -343,7 +354,7 @@ class FSMWorker(PipelineStage):
             )
             await self.tts_input.put(
                 TTSRequest(
-                    text=msg.text,
+                    text=cleaned_text,
                     session_id=msg.session_id,
                     turn_id=msg.turn_id,
                     is_final_sentence=True,
@@ -352,24 +363,35 @@ class FSMWorker(PipelineStage):
             if self.playback_input:
                 await self.playback_input.put(
                     TextResponse(
-                        text=msg.text,
+                        text=cleaned_text,
                         session_id=msg.session_id,
                         turn_id=msg.turn_id,
                         tokens=msg.tokens,
                         latency_ms=msg.latency_ms,
+                        pause_duration_ms=pause_dur,
                     )
                 )
             await self.metrics_output.put(
                 MetricsEvent(
                     "turn_complete", msg.session_id, str(msg.turn_id),
-                    {"reply": msg.text[:60], "tokens": msg.tokens},
+                    {"reply": cleaned_text[:60], "tokens": msg.tokens},
                 )
             )
 
     async def _handle_llm_sentence(self, msg: LLMSentenceChunk):
         state = self._get_session(msg.session_id)
+        
+        import re
+        m = re.search(r"\[SYSTEM_PAUSE:\s*(\d+|AUTO)\]", msg.text, re.IGNORECASE)
+        pause_dur = 0
+        cleaned_text = msg.text
+        if m:
+            val = m.group(1)
+            pause_dur = 5000 if val.upper() == "AUTO" else int(val)
+            cleaned_text = re.sub(r"\[SYSTEM_PAUSE:\s*(\d+|AUTO)\]", "", msg.text, flags=re.IGNORECASE).strip()
+
         sep = " " if state.current_reply else ""
-        state.current_reply += sep + msg.text
+        state.current_reply += sep + cleaned_text
         turn_key = (msg.session_id, msg.turn_id)
 
         # Upsert pending entry with latest text so _handle_cancel always has
@@ -381,7 +403,7 @@ class FSMWorker(PipelineStage):
         elif self._pending_responses[turn_key]["status"] == "pending":
             self._pending_responses[turn_key]["text"] = state.current_reply
 
-        if msg.text or msg.is_final:
+        if cleaned_text or msg.is_final:
             logger.log(
                 "fsm_sending_to_tts", msg.session_id, str(msg.turn_id),
                 detail={
@@ -391,7 +413,7 @@ class FSMWorker(PipelineStage):
             )
             await self.tts_input.put(
                 TTSRequest(
-                    text=msg.text,
+                    text=cleaned_text,
                     session_id=msg.session_id,
                     turn_id=msg.turn_id,
                     is_final_sentence=msg.is_final,
@@ -400,17 +422,27 @@ class FSMWorker(PipelineStage):
 
         if msg.is_final:
             full_text = msg.full_reply_text or state.current_reply
+            # Clean full_text in case it has the pause tag
+            full_text_cleaned = re.sub(r"\[SYSTEM_PAUSE:\s*(\d+|AUTO)\]", "", full_text, flags=re.IGNORECASE).strip()
+            
+            # Find the overall pause duration for this turn if any chunk had one
+            m_full = re.search(r"\[SYSTEM_PAUSE:\s*(\d+|AUTO)\]", full_text, re.IGNORECASE)
+            if m_full:
+                val = m_full.group(1)
+                pause_dur = 5000 if val.upper() == "AUTO" else int(val)
+
             if self._pending_responses[turn_key]["status"] == "pending":
-                self._pending_responses[turn_key]["text"] = full_text
+                self._pending_responses[turn_key]["text"] = full_text_cleaned
 
             if self.playback_input:
                 await self.playback_input.put(
                     TextResponse(
-                        text=full_text,
+                        text=full_text_cleaned,
                         session_id=msg.session_id,
                         turn_id=msg.turn_id,
                         tokens=msg.tokens,
                         latency_ms=msg.latency_ms,
+                        pause_duration_ms=pause_dur,
                     )
                 )
             logger.log(
@@ -420,7 +452,7 @@ class FSMWorker(PipelineStage):
             await self.metrics_output.put(
                 MetricsEvent(
                     "turn_complete", msg.session_id, str(msg.turn_id),
-                    {"reply": full_text[:60], "tokens": msg.tokens},
+                    {"reply": full_text_cleaned[:60], "tokens": msg.tokens},
                 )
             )
 

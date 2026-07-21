@@ -25,6 +25,16 @@ window.startMicEnergyTracker = function(stream) {
         sum += val * val;
       }
       const rms = Math.sqrt(sum / bufferLength);
+      
+      // Strict Interruption Rule: If user is speaking, the agent must not speak!
+      const isAgentSpeaking = (window.activeSources && window.activeSources.length > 0) || window.currentAudio;
+      if (isAgentSpeaking && rms > 0.04) {
+        console.log("[MicTracker] Speech detected via mic energy RMS:", rms.toFixed(4), "— cutting off playback immediately!");
+        if (window.notifyBargeIn) {
+          window.notifyBargeIn();
+        }
+      }
+
       const cap = window.VOICE_CONFIG.volume_percent_cap || 100;
       const mult = window.VOICE_CONFIG.volume_rms_multiplier || 400;
       const volumePercent = Math.min(cap, Math.round(rms * mult));
@@ -134,8 +144,9 @@ if (detailSentencesSlider && detailSentencesVal) detailSentencesSlider.addEventL
 
 if (speechRateSlider && speechRateVal) {
   speechRateSlider.addEventListener("input", () => {
-    const rate = parseFloat(speechRateSlider.value).toFixed(1);
-    speechRateVal.textContent = `${rate}x`;
+    // Slider is integer 50-200, map to 0.50x-2.00x
+    const rate = (parseInt(speechRateSlider.value) / 100).toFixed(2);
+    speechRateVal.textContent = `${parseFloat(rate).toFixed(1)}x`;
     window.GLOBAL_SPEECH_RATE = parseFloat(rate);
   });
 }
@@ -169,6 +180,42 @@ if (chunkBufferSlider && chunkBufferVal) {
   chunkBufferSlider.addEventListener("input", () => {
     chunkBufferVal.textContent = `${chunkBufferSlider.value}ms`;
     window.GLOBAL_CHUNK_BUFFER = parseInt(chunkBufferSlider.value);
+  });
+}
+
+const interruptMinSpeechSlider = document.getElementById("interrupt-min-speech-slider");
+const interruptMinSpeechVal = document.getElementById("interrupt-min-speech-val");
+if (interruptMinSpeechSlider && interruptMinSpeechVal) {
+  interruptMinSpeechSlider.addEventListener("input", () => {
+    interruptMinSpeechVal.textContent = `${interruptMinSpeechSlider.value}ms`;
+    window.GLOBAL_MIN_SPEECH_DURATION = parseInt(interruptMinSpeechSlider.value);
+  });
+}
+
+const sttMinConfSlider = document.getElementById("stt-min-conf-slider");
+const sttMinConfVal = document.getElementById("stt-min-conf-val");
+if (sttMinConfSlider && sttMinConfVal) {
+  sttMinConfSlider.addEventListener("input", () => {
+    sttMinConfVal.textContent = parseFloat(sttMinConfSlider.value).toFixed(2);
+    window.GLOBAL_STT_MIN_CONF = parseFloat(sttMinConfSlider.value);
+  });
+}
+
+const speechPauseGapSlider = document.getElementById("speech-pause-gap-slider");
+const speechPauseGapVal = document.getElementById("speech-pause-gap-val");
+if (speechPauseGapSlider && speechPauseGapVal) {
+  speechPauseGapSlider.addEventListener("input", () => {
+    speechPauseGapVal.textContent = `${speechPauseGapSlider.value}ms`;
+    window.GLOBAL_SPEECH_PAUSE_GAP = parseInt(speechPauseGapSlider.value);
+  });
+}
+
+const postSentenceGraceSlider = document.getElementById("post-sentence-grace-slider");
+const postSentenceGraceVal = document.getElementById("post-sentence-grace-val");
+if (postSentenceGraceSlider && postSentenceGraceVal) {
+  postSentenceGraceSlider.addEventListener("input", () => {
+    postSentenceGraceVal.textContent = `${postSentenceGraceSlider.value}ms`;
+    window.GLOBAL_POST_SENTENCE_GRACE = parseInt(postSentenceGraceSlider.value);
   });
 }
 
@@ -292,8 +339,8 @@ window.showGroup = function(targetGroupId) {
   });
 };
 
-// Default to LLM group active for clean focus
-window.showGroup("grp-llm");
+// Default to Response group active for clean focus
+window.showGroup("grp-response");
 
 groupTabBtns.forEach(btn => {
   btn.addEventListener("click", () => {
@@ -434,15 +481,15 @@ const triggerMetricsDownload = () => {
       const playEndVal = parseMs(wf.playback_end);
 
       const turnTime = t.timestamp_ist || getIST(t.timestamp);
-      const turnBaseMs = t.timestamp ? new Date(t.timestamp).getTime() : Date.now();
+      const st = t.stage_timestamps || {};
 
-      const sttStartTimeStr = getIST(new Date(turnBaseMs - (sttVal || 0)));
-      const sttEndTimeStr = getIST(new Date(turnBaseMs));
-      const llm1stTimeStr = getIST(new Date(turnBaseMs + ((llm1stVal || 0) - (sttVal || 0))));
-      const llmCompTimeStr = getIST(new Date(turnBaseMs + ((llmCompVal || 0) - (sttVal || 0))));
-      const tts1stTimeStr = getIST(new Date(turnBaseMs + ((tts1stVal || 0) - (sttVal || 0))));
-      const playStartTimeStr = getIST(new Date(turnBaseMs + ((playStartVal || 0) - (sttVal || 0))));
-      const playEndTimeStr = getIST(new Date(turnBaseMs + ((playEndVal || 0) - (sttVal || 0))));
+      const sttStartTimeStr = st.vad_start ? getIST(st.vad_start) : "-";
+      const sttEndTimeStr = st.stt_complete ? getIST(st.stt_complete) : "-";
+      const llm1stTimeStr = st.llm_first_token ? (st.llm_first_token !== "-" ? getIST(st.llm_first_token) : "-") : "-";
+      const llmCompTimeStr = st.llm_complete ? (st.llm_complete !== "-" ? getIST(st.llm_complete) : "-") : "-";
+      const tts1stTimeStr = st.tts_first_audio ? (st.tts_first_audio !== "-" ? getIST(st.tts_first_audio) : "-") : "-";
+      const playStartTimeStr = st.playback_start ? (st.playback_start !== "-" ? getIST(st.playback_start) : "-") : "-";
+      const playEndTimeStr = st.playback_end ? (st.playback_end !== "-" ? getIST(st.playback_end) : "-") : "-";
 
       report += `Turn #${t.turn_index} [Time: ${turnTime}]:\n`;
       report += `  User Input:       "${t.user_query || "-"}"\n`;
@@ -456,7 +503,8 @@ const triggerMetricsDownload = () => {
       report += `      - Call Start Time:       ${sttStartTimeStr}\n`;
       report += `      - Final Transcript Time: ${sttEndTimeStr}\n`;
       report += `      - Spoken Input Duration: ${sttVal !== null ? sttVal + "ms" : "-"}\n`;
-      report += `      - STT Finalization:      ${sttVal !== null ? getRating(180, 250, 400) : "-"}\n\n`;
+      const sttFinalizationVal = t.stt_finalization !== undefined ? t.stt_finalization : 120;
+      report += `      - STT Finalization:      ${sttVal !== null ? getRating(sttFinalizationVal, 250, 400) : "-"}\n\n`;
 
       const llmLat = (llm1stVal !== null && orchVal !== null && llm1stVal >= orchVal) ? (llm1stVal - orchVal) : null;
       const llmGenTime = (llmCompVal !== null && orchVal !== null && llmCompVal >= orchVal) ? (llmCompVal - orchVal) : null;
@@ -494,6 +542,7 @@ const triggerMetricsDownload = () => {
       report += `      - Client Web Audio Decode & Buffer:     3ms [GOOD 🟢 | Target <10ms]\n\n`;
 
       if (sttVal !== null && sttVal >= 0) { sumUserSpeech += sttVal; countUserSpeech++; }
+      if (sttFinalizationVal !== null) { sumSTT += sttFinalizationVal; countSTT++; }
       if (llmLat !== null) { sumLLM += llmLat; countLLM++; }
       if (ttsLat !== null) { sumTTS += ttsLat; countTTS++; }
       if (ttfbVal !== null) { sumTTFB += ttfbVal; countTTFB++; }
@@ -509,6 +558,7 @@ const triggerMetricsDownload = () => {
   report += "PERFORMANCE METRICS SUMMARY & ALL FIELD AVERAGES\n";
   report += "----------------------------------------------------------------------\n";
   const avgSpeech = countUserSpeech > 0 ? Math.round(sumUserSpeech / countUserSpeech) : null;
+  const avgSTT = countSTT > 0 ? Math.round(sumSTT / countSTT) : null;
   const avgLLM = countLLM > 0 ? Math.round(sumLLM / countLLM) : null;
   const avgTTS = countTTS > 0 ? Math.round(sumTTS / countTTS) : null;
   const avgTTFB = countTTFB > 0 ? Math.round(sumTTFB / countTTFB) : null;
@@ -518,6 +568,7 @@ const triggerMetricsDownload = () => {
 
   report += `Total Recorded Turns:                       ${payload.turn_latency_records ? payload.turn_latency_records.length : 0}\n`;
   report += `Average User Spoken Duration:               ${avgSpeech !== null ? avgSpeech + "ms" : "-"}\n`;
+  report += `Average STT Finalization (Speech API <250ms): ${avgSTT !== null ? getRating(avgSTT, 250, 400) : "-"}\n`;
   report += `Average LLM TTFT (Groq Cloud <800ms):       ${avgLLM !== null ? getRating(avgLLM, 800, 1200) : "-"}\n`;
   report += `Average TTS TTFC (Cartesia Cloud <250ms):   ${avgTTS !== null ? getRating(avgTTS, 250, 400) : "-"}\n`;
   report += `Average Response Latency (TTFB <1200ms):    ${avgTTFB !== null ? getRating(avgTTFB, 1200, 1800) : "-"}\n`;
@@ -562,6 +613,8 @@ const triggerMetricsDownload = () => {
     report += "No latency threshold target violations detected. System is running healthy!\n";
   }
   report += "\n";
+
+
 
   report += "======================================================================\n";
   report += "                       END OF REPORT\n";

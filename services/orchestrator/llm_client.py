@@ -151,7 +151,7 @@ def _get_sentence_re():
         abbrev_lookbehind = (
             r'(?<!\bMr)(?<!\bDr)(?<!\betc)(?<!\bvs)(?<!\be\.g)(?<!\bi\.e)'
         )
-        pattern = rf'(?:(?<=[!?\n])|(?<={abbrev_lookbehind}\.))\s+'
+        pattern = rf'(?:(?<=[!?\n,;:—])|(?<={abbrev_lookbehind}\.))\s+'
         _SENTENCE_END_RE = re.compile(pattern, re.IGNORECASE)
     return _SENTENCE_END_RE
 
@@ -193,7 +193,9 @@ def call_primary_streaming(
     cached = cache_client.lookup(session_id, turn_id, query, system_prompt, model_name, messages)
     if cached is not None:
         if cached and not cancellation_manager.is_cancelled(session_id):
+            telemetry_bus.push("llm_first_token", {"latency_ms": 0, "provider": "cache"}, session_id, turn_id)
             sentence_callback(cached)
+            telemetry_bus.push("llm_complete", {"latency_ms": 0, "provider": "cache"}, session_id, turn_id)
         return cached
 
     api_key = settings.groq_api_key
@@ -330,6 +332,15 @@ def call_primary_streaming(
                         return "".join(collected_chunks)
                     sentence_callback(sentence)
                 sentence_buffer = [parts[-1]]
+            elif len(buffered.split()) >= 7 and (" " in delta or "\n" in delta):
+                # Fast chunking: if buffer hits 7 words without punctuation, flush on last space
+                words = buffered.split()
+                flush_text = " ".join(words[:-1])
+                sentence_buffer = [words[-1]]
+                if flush_text.strip():
+                    from services.orchestrator.async_pipeline import get_current_turn
+                    if not (cancellation_manager.is_cancelled(session_id) or int(turn_id) < get_current_turn(session_id)):
+                        sentence_callback(flush_text.strip())
 
     except Exception:
         failover.primary_circuit_breaker.record_failure(session_id, turn_id)

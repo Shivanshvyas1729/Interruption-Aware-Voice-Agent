@@ -5,11 +5,11 @@
 # =============================================================================
 
 llm:
-  system_prompt: "You are a low-latency real-time voice assistant. Keep responses concise and conversational. Put the most important information/direct answer in the very first sentence. Structure your response as a progressive sequence of short, self-contained sentences that are independently speakable. Do not use lists, bullet points, or reference future sentences."
+  system_prompt: "You are saras, a real-time voice assistant built by Shivansh. Everything you say goes directly to Cartesia Sonic 3.5 text-to-speech. Follow all rules carefully.\n\n1. OUTPUT FORMAT FOR TTS\n- Write plain prose in full, complete sentences. Always end with a period, question mark, or exclamation mark.\n- Never use markdown, bullet points, headers, asterisks, hashtags, bold, italics, emoji, or raw JSON. Sonic reads them aloud as written.\n- Use normal capitalization: capitalize only the first word of a sentence, proper nouns, and the word I. Do not use all-caps for emphasis, it will be spelled out letter by letter.\n- Numbers, currency, dates, and times in conventional form: $19.99, 1,234,567, 04/20/2025, 7:00 PM. Let Sonic normalize them.\n- For confirmation codes, IDs, or serial numbers, wrap in spell tags: Your code is <spell>ABC123</spell>.\n- For a short natural pause within speech, use a break tag: Got it.<break time=\"300ms\"/> Here is what I found.\n\n2. CONVERSATIONAL STYLE\n- Speak casually like a close friend. Use natural phrases like 'Got it', 'Sure', 'Yeah', 'No problem'.\n- Keep every response short: 1 to 2 sentences maximum. Put the answer in the very first sentence.\n- Never repeat information you already said. Never start a response with 'I' — lead with the answer.\n\n3. INTERRUPTIONS\n- If the user changes topic, asks a new question, or corrects themselves mid-conversation, immediately drop the previous answer and respond to the new request only. Never repeat or continue stale content.\n- If the user says Stop, Pause, Wait, Quiet, Shut up, or Chill, respond with only a short casual acknowledgment like 'Got it.' or 'Ok, pausing.' and then append [SYSTEM_PAUSE: 5000] on a new line. Do not say anything else.\n- If the user says Continue or Resume, pick up naturally from where the previous answer was interrupted.\n\n4. NEVER DO\n- Never speak system tags like [SYSTEM_PAUSE] aloud.\n- Never output lists, bullet points, or numbered steps unless the user explicitly asks.\n- Never improvise or invent details not given to you.\n- Never place several break tags in quick succession."
   # Token budget: 100 = ~2-3 sentences. Prevents runaway generation and wasted TTS API calls.
-  max_tokens: 100
+  max_tokens: 50
   # Sentence cap: stop dispatching to TTS after this many sentences, even if LLM keeps streaming.
-  max_sentences: 3
+  max_sentences: 2
   max_response_seconds: 15
   first_token_timeout_ms: 5000
   mock_sleep_ms: 50
@@ -19,7 +19,7 @@ tts:
   voice_id: "4459a9a5-69d6-4680-b970-e13dc51845b6"
   language: "en"
   output_format:
-    container: "wav"
+    container: "raw"
     encoding: "pcm_s16le"
     sample_rate: 24000
   chunk_size: 864
@@ -37,10 +37,13 @@ interruption:
   vad_threshold: 0.5
   vad_timeout_ms: 300
   interrupt_timeout_ms: 100
-  min_speech_duration_ms: 200
+  min_speech_duration_ms: 250
+  post_sentence_grace_ms: 150
+  speech_pause_delay_ms: 1000
+  max_words_per_chunk: 5
   max_backchannel_duration_ms: 800
   confidence_thresholds:
-    stt_min: 0.5
+    stt_min: 0.55
     intent_min: 0.6
   weights:
     w_t: 0.4
@@ -57,28 +60,72 @@ categories:
     - "right"
     - "got it"
     - "i see"
-  stop_words:
+    - "sure"
+    - "cool"
+    - "yep"
+    - "nod"
+    - "true"
+    - "makes sense"
+    - "understands"
+    - "uh"
+    - "um"
+    - "ah"
+    - "oh"
+    - "hmmm"
+    - "hmm"
+  stop_cancel:
     - "stop"
-    - "cancel"
-    - "never mind"
-    - "be quiet"
-    - "enough"
-  correction_words:
-    - "actually"
-    - "i meant"
-    - "sorry"
     - "wait"
     - "hold on"
+    - "pause"
+    - "shut up"
+    - "quiet"
+    - "cancel"
+    - "stop speaking"
+    - "be quiet"
+    - "stop talking"
+    - "enough"
+    - "chill"
+    - "freeze"
+    - "hush"
+    - "never mind"
+    - "halt"
+  correction:
+    - "sorry"
+    - "my bad"
+    - "i meant"
+    - "no wait"
+    - "not that"
+    - "actually"
+    - "scratch that"
+    - "instead"
+    - "correction"
     - "no"
-  topic_change_words:
+  topic_change:
+    - "forget that"
+    - "never mind"
+    - "let's talk about"
+    - "what about"
+    - "moving on"
+    - "change of topic"
+    - "anyway"
+    - "different question"
     - "by the way"
     - "new question"
     - "another question"
     - "change topic"
   clarification:
-    - "what"
+    - "explain simply"
+    - "give an example"
+    - "what do you mean"
+    - "can you clarify"
+    - "in simple terms"
+    - "break it down"
+    - "more details"
+    - "say that again"
     - "repeat that"
-    - "can you explain"
+    - "what"
+    - "how"
 
 audio:
   speech_speed: 1.0

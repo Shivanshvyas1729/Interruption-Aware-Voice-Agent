@@ -59,7 +59,7 @@ def speak(session_id: str, turn_id: str, text: str) -> bytes:
         },
         language=vc_get("tts.language", "en"),
         output_format={
-            "container": vc_get("tts.output_format.container", "wav"),
+            "container": vc_get("tts.output_format.container", "raw"),
             "encoding": vc_get("tts.output_format.encoding", "pcm_s16le"),
             "sample_rate": vc_get("tts.output_format.sample_rate", 24000)
         }
@@ -140,7 +140,7 @@ def speak_stream(session_id: str, turn_id: str, text: str, chunk_callback) -> No
         },
         language=vc_get("tts.language", "en"),
         output_format={
-            "container": vc_get("tts.output_format.container", "wav"),
+            "container": vc_get("tts.output_format.container", "raw"),
             "encoding": vc_get("tts.output_format.encoding", "pcm_s16le"),
             "sample_rate": vc_get("tts.output_format.sample_rate", 24000)
         }

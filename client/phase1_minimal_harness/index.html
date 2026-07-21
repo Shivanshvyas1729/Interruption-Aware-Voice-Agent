@@ -737,131 +737,128 @@
 
           <!-- Group Navigation Selector Tabs -->
           <div id="control-group-tabs" style="display: flex; gap: 8px; border-bottom: 1px solid rgba(255,255,255,0.06); padding-bottom: 10px; overflow-x: auto;">
-            <button class="grp-tab-btn active" data-group="grp-llm" style="padding: 6px 14px; font-size: 0.75rem; font-weight: 700; border-radius: 8px; border: 1px solid rgba(59,130,246,0.5); background: rgba(59,130,246,0.2); color: #60a5fa; cursor: pointer; transition: all 0.2s ease;"> LLM Intelligence</button>
-            <button class="grp-tab-btn" data-group="grp-voice" style="padding: 6px 14px; font-size: 0.75rem; font-weight: 700; border-radius: 8px; border: 1px solid rgba(255,255,255,0.08); background: rgba(255,255,255,0.03); color: #9ca3af; cursor: pointer; transition: all 0.2s ease;"> Voice & Synthesis</button>
-            <button class="grp-tab-btn" data-group="grp-stt" style="padding: 6px 14px; font-size: 0.75rem; font-weight: 700; border-radius: 8px; border: 1px solid rgba(255,255,255,0.08); background: rgba(255,255,255,0.03); color: #9ca3af; cursor: pointer; transition: all 0.2s ease;"> STT & VAD</button>
-            <button class="grp-tab-btn" data-group="grp-latency" style="padding: 6px 14px; font-size: 0.75rem; font-weight: 700; border-radius: 8px; border: 1px solid rgba(255,255,255,0.08); background: rgba(255,255,255,0.03); color: #9ca3af; cursor: pointer; transition: all 0.2s ease;"> Latency & Delays</button>
-            <button class="grp-tab-btn" data-group="grp-all" style="padding: 6px 14px; font-size: 0.75rem; font-weight: 700; border-radius: 8px; border: 1px solid rgba(255,255,255,0.08); background: rgba(255,255,255,0.03); color: #9ca3af; cursor: pointer; transition: all 0.2s ease;"> View All</button>
+            <button class="grp-tab-btn active" data-group="grp-response" style="padding: 6px 14px; font-size: 0.75rem; font-weight: 700; border-radius: 8px; border: 1px solid rgba(59,130,246,0.5); background: rgba(59,130,246,0.2); color: #60a5fa; cursor: pointer; transition: all 0.2s ease;">🧠 Response</button>
+            <button class="grp-tab-btn" data-group="grp-voice" style="padding: 6px 14px; font-size: 0.75rem; font-weight: 700; border-radius: 8px; border: 1px solid rgba(255,255,255,0.08); background: rgba(255,255,255,0.03); color: #9ca3af; cursor: pointer; transition: all 0.2s ease;">🔊 Voice</button>
+            <button class="grp-tab-btn" data-group="grp-interrupt" style="padding: 6px 14px; font-size: 0.75rem; font-weight: 700; border-radius: 8px; border: 1px solid rgba(255,255,255,0.08); background: rgba(255,255,255,0.03); color: #9ca3af; cursor: pointer; transition: all 0.2s ease;">⚡ Interruption</button>
           </div>
-          
+
           <!-- Group Content Panels -->
           <div id="control-groups-container" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px;">
-            
-            <!-- Group 1: LLM Token & Sentence Bounds -->
-            <div id="grp-llm" class="ctrl-grp-card" style="background: rgba(255,255,255,0.02); padding: 14px; border-radius: 12px; border: 1px solid rgba(59,130,246,0.3); display: flex; flex-direction: column; gap: 10px;">
-              <div style="display: flex; justify-content: space-between; align-items: center;">
-                <span style="font-weight: 700; color: #60a5fa; font-size: 0.78rem; text-transform: uppercase;"> LLM Intelligence</span>
-                <span style="font-size: 0.65rem; background: rgba(59,130,246,0.15); color: #60a5fa; padding: 2px 6px; border-radius: 4px;">Human Response Bounds</span>
-              </div>
-              <div style="display: flex; flex-direction: column; gap: 4px;">
+
+            <!-- Group 1: Response (LLM) -->
+            <div id="grp-response" class="ctrl-grp-card" style="background: rgba(255,255,255,0.02); padding: 16px; border-radius: 14px; border: 1px solid rgba(59,130,246,0.3); display: flex; flex-direction: column; gap: 14px;">
+              <span style="font-weight: 700; color: #60a5fa; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.05em;">🧠 Response Length</span>
+
+              <div style="display: flex; flex-direction: column; gap: 5px;">
                 <label style="display: flex; justify-content: space-between; font-size: 0.72rem; color: #9ca3af;">
-                  Normal Tokens: <span id="normal-tokens-val" style="font-weight: bold; color: #3b82f6;">200</span>
+                  Max Tokens (words ≈ tokens ÷ 0.75): <span id="normal-tokens-val" style="font-weight: bold; color: #60a5fa;">50</span>
                 </label>
-                <input type="range" id="normal-tokens-slider" min="50" max="1000" step="10" value="200" style="width: 100%; cursor: pointer;">
+                <input type="range" id="normal-tokens-slider" min="10" max="300" step="1" value="50" style="width: 100%; cursor: pointer; accent-color: #3b82f6;">
+                <div style="display: flex; justify-content: space-between; font-size: 0.62rem; color: #4b5563;">
+                  <span>10 (1 sentence)</span><span>300 (long reply)</span>
+                </div>
               </div>
-              <div style="display: flex; flex-direction: column; gap: 4px;">
+
+              <div style="display: flex; flex-direction: column; gap: 5px;">
                 <label style="display: flex; justify-content: space-between; font-size: 0.72rem; color: #9ca3af;">
-                  Normal Sentences: <span id="normal-sentences-val" style="font-weight: bold; color: #3b82f6;">2</span>
+                  Max Sentences: <span id="normal-sentences-val" style="font-weight: bold; color: #60a5fa;">2</span>
                 </label>
-                <input type="range" id="normal-sentences-slider" min="1" max="10" step="1" value="2" style="width: 100%; cursor: pointer;">
+                <input type="range" id="normal-sentences-slider" min="1" max="8" step="1" value="2" style="width: 100%; cursor: pointer; accent-color: #3b82f6;">
+                <div style="display: flex; justify-content: space-between; font-size: 0.62rem; color: #4b5563;">
+                  <span>1 (fastest)</span><span>8 (detailed)</span>
+                </div>
               </div>
-              <div style="display: flex; flex-direction: column; gap: 4px;">
-                <label style="display: flex; justify-content: space-between; font-size: 0.72rem; color: #9ca3af;">
-                  Detail Tokens: <span id="detail-tokens-val" style="font-weight: bold; color: #a78bfa;">500</span>
-                </label>
-                <input type="range" id="detail-tokens-slider" min="100" max="2000" step="50" value="500" style="width: 100%; cursor: pointer;">
-              </div>
-              <div style="display: flex; flex-direction: column; gap: 4px;">
-                <label style="display: flex; justify-content: space-between; font-size: 0.72rem; color: #9ca3af;">
-                  Detail Sentences: <span id="detail-sentences-val" style="font-weight: bold; color: #a78bfa;">5</span>
-                </label>
-                <input type="range" id="detail-sentences-slider" min="1" max="15" step="1" value="5" style="width: 100%; cursor: pointer;">
-              </div>
+
+              <!-- Hidden sliders kept for JS compatibility, not shown -->
+              <input type="range" id="detail-tokens-slider" min="100" max="2000" step="1" value="500" style="display:none;">
+              <input type="range" id="detail-sentences-slider" min="1" max="15" step="1" value="5" style="display:none;">
+              <span id="detail-tokens-val" style="display:none;">500</span>
+              <span id="detail-sentences-val" style="display:none;">5</span>
             </div>
 
-            <!-- Group 2: Speech Synthesis (TTS) & Voice Speed -->
-            <div id="grp-voice" class="ctrl-grp-card" style="background: rgba(255,255,255,0.02); padding: 14px; border-radius: 12px; border: 1px solid rgba(16,185,129,0.3); display: flex; flex-direction: column; gap: 10px;">
-              <div style="display: flex; justify-content: space-between; align-items: center;">
-                <span style="font-weight: 700; color: #10b981; font-size: 0.78rem; text-transform: uppercase;"> Voice & Audio Synthesis</span>
-                <span style="font-size: 0.65rem; background: rgba(16,185,129,0.15); color: #34d399; padding: 2px 6px; border-radius: 4px;">Human Cadence</span>
-              </div>
-              <div style="display: flex; flex-direction: column; gap: 4px;">
+            <!-- Group 2: Voice & Audio -->
+            <div id="grp-voice" class="ctrl-grp-card" style="background: rgba(255,255,255,0.02); padding: 16px; border-radius: 14px; border: 1px solid rgba(16,185,129,0.3); display: flex; flex-direction: column; gap: 14px;">
+              <span style="font-weight: 700; color: #10b981; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.05em;">🔊 Voice & Audio</span>
+
+              <div style="display: flex; flex-direction: column; gap: 5px;">
                 <label style="display: flex; justify-content: space-between; font-size: 0.72rem; color: #9ca3af;">
-                  Speech Rate: <span id="speech-rate-val" style="font-weight: bold; color: #10b981;">1.0x</span>
+                  Speech Speed: <span id="speech-rate-val" style="font-weight: bold; color: #10b981;">1.0x</span>
                 </label>
-                <input type="range" id="speech-rate-slider" min="0.5" max="2.0" step="0.1" value="1.0" style="width: 100%; cursor: pointer;">
+                <input type="range" id="speech-rate-slider" min="50" max="200" step="1" value="100" style="width: 100%; cursor: pointer; accent-color: #10b981;">
+                <div style="display: flex; justify-content: space-between; font-size: 0.62rem; color: #4b5563;">
+                  <span>0.5x (slow)</span><span>2.0x (fast)</span>
+                </div>
               </div>
-              <div style="display: flex; flex-direction: column; gap: 4px;">
+
+              <div style="display: flex; flex-direction: column; gap: 5px;">
                 <label style="display: flex; justify-content: space-between; font-size: 0.72rem; color: #9ca3af;">
                   Volume: <span id="tts-volume-val" style="font-weight: bold; color: #10b981;">100%</span>
                 </label>
-                <input type="range" id="tts-volume-slider" min="0" max="100" step="5" value="100" style="width: 100%; cursor: pointer;">
+                <input type="range" id="tts-volume-slider" min="0" max="100" step="1" value="100" style="width: 100%; cursor: pointer; accent-color: #10b981;">
               </div>
-              <div style="display: flex; flex-direction: column; gap: 2px;">
-                <label style="font-size: 0.72rem; color: #9ca3af;">TTS Model:</label>
-                <select id="tts-voice-select" style="background: rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.1); color: #fff; padding: 5px 8px; border-radius: 6px; font-size: 0.72rem; width: 100%; cursor: pointer;">
-                  <option value="sonic-english">Sonic English (Natural Human Default)</option>
-                  <option value="sonic-multilingual">Sonic Multilingual</option>
-                  <option value="cartesia-standard">Cartesia Neural</option>
-                </select>
-              </div>
-            </div>
 
-            <!-- Group 3: Speech Recognition (STT) & Mic Bar -->
-            <div id="grp-stt" class="ctrl-grp-card" style="background: rgba(255,255,255,0.02); padding: 14px; border-radius: 12px; border: 1px solid rgba(245,158,11,0.3); display: flex; flex-direction: column; gap: 10px;">
-              <div style="display: flex; justify-content: space-between; align-items: center;">
-                <span style="font-weight: 700; color: #f59e0b; font-size: 0.78rem; text-transform: uppercase;"> STT & VAD Sensitivity</span>
-                <span style="font-size: 0.65rem; background: rgba(245,158,11,0.15); color: #fcd34d; padding: 2px 6px; border-radius: 4px;">Pause Allowance</span>
-              </div>
-              <div style="display: flex; flex-direction: column; gap: 2px;">
-                <label style="font-size: 0.72rem; color: #9ca3af;">STT Language:</label>
-                <select id="stt-lang-select" style="background: rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.1); color: #fff; padding: 5px 8px; border-radius: 6px; font-size: 0.72rem; width: 100%; cursor: pointer;">
-                  <option value="en-US">English (US)</option>
-                  <option value="hi-IN">Hindi (hi-IN)</option>
-                  <option value="es-ES">Spanish (es-ES)</option>
-                  <option value="fr-FR">French (fr-FR)</option>
-                  <option value="de-DE">German (de-DE)</option>
+              <div style="display: flex; flex-direction: column; gap: 4px;">
+                <label style="font-size: 0.72rem; color: #9ca3af; margin-bottom: 2px;">TTS Voice Model:</label>
+                <select id="tts-voice-select" style="background: rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.1); color: #fff; padding: 6px 8px; border-radius: 8px; font-size: 0.72rem; width: 100%; cursor: pointer;">
+                  <option value="sonic-3.5" selected>Sonic 3.5 (Fast, Recommended)</option>
+                  <option value="sonic">Sonic (Latest)</option>
+                  <option value="sonic-3">Sonic 3</option>
                 </select>
               </div>
-              <div style="display: flex; flex-direction: column; gap: 4px;">
-                <label style="display: flex; justify-content: space-between; font-size: 0.72rem; color: #9ca3af;">
-                  VAD Silence Timeout: <span id="vad-silence-val" style="font-weight: bold; color: #f59e0b;">450ms</span>
-                </label>
-                <input type="range" id="vad-silence-slider" min="200" max="1500" step="50" value="450" style="width: 100%; cursor: pointer;">
-              </div>
+
               <div style="margin-top: 2px;">
-                <div style="font-size:0.68rem; color:var(--text-secondary); margin-bottom:3px; font-weight:600; text-transform:uppercase;"> Live Mic Energy</div>
-                <div style="background:rgba(255,255,255,0.05); border-radius:4px; height:6px; overflow:hidden;">
+                <div style="font-size:0.68rem; color:var(--text-secondary); margin-bottom:4px; font-weight:600; text-transform:uppercase;">Live Mic Energy</div>
+                <div style="background:rgba(255,255,255,0.05); border-radius:4px; height:7px; overflow:hidden;">
                   <div id="mic-energy-bar" style="height:100%; width:0%; background:linear-gradient(90deg,#10b981,#3b82f6); border-radius:4px; transition:width 50ms linear;"></div>
                 </div>
               </div>
             </div>
 
-            <!-- Group 4: Delay & Latency Timing Controls -->
-            <div id="grp-latency" class="ctrl-grp-card" style="background: rgba(255,255,255,0.02); padding: 14px; border-radius: 12px; border: 1px solid rgba(236,72,153,0.3); display: flex; flex-direction: column; gap: 10px;">
-              <div style="display: flex; justify-content: space-between; align-items: center;">
-                <span style="font-weight: 700; color: #ec4899; font-size: 0.78rem; text-transform: uppercase;"> Human Interruption & Delays</span>
-                <span style="font-size: 0.65rem; background: rgba(236,72,153,0.15); color: #f472b6; padding: 2px 6px; border-radius: 4px;">Natural Cutoff</span>
-              </div>
-              <div style="display: flex; flex-direction: column; gap: 4px;">
+            <!-- Group 3: Interruption -->
+            <div id="grp-interrupt" class="ctrl-grp-card" style="background: rgba(255,255,255,0.02); padding: 16px; border-radius: 14px; border: 1px solid rgba(236,72,153,0.3); display: flex; flex-direction: column; gap: 14px;">
+              <span style="font-weight: 700; color: #ec4899; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.05em;">⚡ Interruption</span>
+
+              <div style="display: flex; flex-direction: column; gap: 5px;">
                 <label style="display: flex; justify-content: space-between; font-size: 0.72rem; color: #9ca3af;">
-                  Barge-in Cutoff Delay: <span id="bargein-delay-val" style="font-weight: bold; color: #ec4899;">0ms</span>
+                  VAD Silence (pause before sending): <span id="vad-silence-val" style="font-weight: bold; color: #f59e0b;">450ms</span>
                 </label>
-                <input type="range" id="bargein-delay-slider" min="0" max="500" step="25" value="0" style="width: 100%; cursor: pointer;">
+                <input type="range" id="vad-silence-slider" min="100" max="1200" step="1" value="450" style="width: 100%; cursor: pointer; accent-color: #f59e0b;">
+                <div style="display: flex; justify-content: space-between; font-size: 0.62rem; color: #4b5563;">
+                  <span>100ms (instant)</span><span>1200ms (patient)</span>
+                </div>
               </div>
-              <div style="display: flex; flex-direction: column; gap: 4px;">
+
+              <div style="display: flex; flex-direction: column; gap: 5px;">
                 <label style="display: flex; justify-content: space-between; font-size: 0.72rem; color: #9ca3af;">
-                  Audio Chunk Buffer: <span id="chunk-buffer-val" style="font-weight: bold; color: #ec4899;">30ms</span>
+                  Min Interrupt Duration: <span id="interrupt-min-speech-val" style="font-weight: bold; color: #ec4899;">250ms</span>
                 </label>
-                <input type="range" id="chunk-buffer-slider" min="0" max="200" step="10" value="30" style="width: 100%; cursor: pointer;">
+                <input type="range" id="interrupt-min-speech-slider" min="50" max="600" step="1" value="250" style="width: 100%; cursor: pointer; accent-color: #ec4899;">
+                <div style="display: flex; justify-content: space-between; font-size: 0.62rem; color: #4b5563;">
+                  <span>50ms (very sensitive)</span><span>600ms (deliberate)</span>
+                </div>
               </div>
-              <div style="display: flex; flex-direction: column; gap: 2px;">
-                <label style="font-size: 0.72rem; color: #9ca3af;">Interruption Cutoff Mode:</label>
-                <select id="cutoff-mode-select" style="background: rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.1); color: #fff; padding: 5px 8px; border-radius: 6px; font-size: 0.72rem; width: 100%; cursor: pointer;">
-                  <option value="soft" selected>Soft Audio Fade (50ms - Human Natural)</option>
-                  <option value="instant">Instant Silence (0ms - Hard Cutoff)</option>
-                </select>
+
+              <div style="display: flex; flex-direction: column; gap: 5px;">
+                <label style="display: flex; justify-content: space-between; font-size: 0.72rem; color: #9ca3af;">
+                  STT Confidence Threshold: <span id="stt-min-conf-val" style="font-weight: bold; color: #ec4899;">0.55</span>
+                </label>
+                <input type="range" id="stt-min-conf-slider" min="10" max="90" step="1" value="55" style="width: 100%; cursor: pointer; accent-color: #ec4899;">
+                <div style="display: flex; justify-content: space-between; font-size: 0.62rem; color: #4b5563;">
+                  <span>0.1 (accept anything)</span><span>0.9 (high certainty)</span>
+                </div>
               </div>
+
+              <!-- Hidden legacy sliders kept for JS compatibility -->
+              <input type="range" id="speech-pause-gap-slider" min="100" max="2500" step="1" value="1000" style="display:none;">
+              <input type="range" id="post-sentence-grace-slider" min="0" max="800" step="1" value="150" style="display:none;">
+              <input type="range" id="bargein-delay-slider" min="0" max="500" step="1" value="0" style="display:none;">
+              <input type="range" id="chunk-buffer-slider" min="0" max="200" step="1" value="30" style="display:none;">
+              <select id="cutoff-mode-select" style="display:none;"><option value="soft" selected>soft</option></select>
+              <select id="stt-lang-select" style="display:none;"><option value="en-US" selected>English (US)</option></select>
+              <span id="speech-pause-gap-val" style="display:none;">1000ms</span>
+              <span id="post-sentence-grace-val" style="display:none;">150ms</span>
+              <span id="bargein-delay-val" style="display:none;">0ms</span>
+              <span id="chunk-buffer-val" style="display:none;">30ms</span>
             </div>
 
           </div>

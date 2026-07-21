@@ -50,6 +50,11 @@ window.renderLogEvent = function(logData) {
 };
 
 window.updateUIState = function(state, text) {
+  if (!window.sessionActive && state !== "disconnected" && state !== "error" && state !== "connecting") {
+    console.log("[UI] Ignoring state update to", state, "because session is inactive");
+    return;
+  }
+
   const statusBadge = document.getElementById("status-badge");
   const statusDot = document.getElementById("status-dot");
   const waveContainer = document.getElementById("wave-container");
@@ -145,11 +150,15 @@ window.setWaterfall = function(id, label, offsetMs, color) {
 };
 
 window.clearWaterfall = function() {
-  ["wf-vad-start", "wf-stt-complete", "wf-llm-first-token", "wf-llm-complete",
-   "wf-tts-first-audio", "wf-playback-start", "wf-playback-end"].forEach(id => {
+  ["wf-vad-start", "wf-stt-complete", "wf-orch-start", "wf-llm-first-token", "wf-llm-complete",
+   "wf-tts-first-audio", "wf-tts-complete", "wf-playback-start", "wf-playback-end"].forEach(id => {
     const el = document.getElementById(id);
-    if (el && el.parentElement) {
-      el.parentElement.style.opacity = "0.45";
+    if (el) {
+      el.textContent = "-";
+      el.style.color = "#9ca3af";
+      if (el.parentElement) {
+        el.parentElement.style.opacity = "0.45";
+      }
     }
   });
 };
@@ -498,7 +507,17 @@ window.recordTurnMetrics = function(isCancelled = false, reason = "") {
     status: isCancelled ? `cancelled (${reason})` : "completed",
     user_query: userQueryVal,
     agent_response: agentResponseVal,
-    waterfall: waterfall
+    waterfall: waterfall,
+    stt_finalization: window._sttFinalizationMs || 120,
+    stage_timestamps: {
+      vad_start: window._vadStartIso || istTime,
+      stt_complete: window._sttCompleteIso || istTime,
+      llm_first_token: window._llmFirstTokenIso || "-",
+      llm_complete: window._llmCompleteIso || "-",
+      tts_first_audio: window._ttsFirstAudioIso || "-",
+      playback_start: window._playbackStartIso || "-",
+      playback_end: window._playbackEndIso || "-"
+    }
   };
 
   window.sessionMetricsHistory.turn_latency_records.push(record);
