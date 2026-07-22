@@ -122,16 +122,15 @@ class StampedeProtection:
     def end_fetch(self, cache_key: str, result: str) -> None:
         with self.lock:
             self._results[cache_key] = result
-            if cache_key in self._events:
-                self._events[cache_key].set()
-                # Clean up event
-                del self._events[cache_key]
+            evt = self._events.pop(cache_key, None)
+            if evt:
+                evt.set()
 
     def cancel_fetch(self, cache_key: str) -> None:
         with self.lock:
-            if cache_key in self._events:
-                self._events[cache_key].set()
-                del self._events[cache_key]
+            evt = self._events.pop(cache_key, None)
+            if evt:
+                evt.set()
 
 class CacheManager:
     def __init__(self, store: CacheStore, strategy: CacheStrategy):
@@ -149,7 +148,7 @@ class CacheManager:
         - optional version strings from voice settings for prompt/template/output format
         This ensures cache entries are invalidated automatically when any of these components change.
         """
-        recent_history = context_history[-3:-1] if len(context_history) > 2 else context_history[:-1]
+        recent_history = context_history[-2:] if len(context_history) >= 2 else context_history
         hist_str = f"len:{len(context_history)}:" + str(recent_history)
         sys_hash = hashlib.md5(system_prompt.encode('utf-8')).hexdigest()
         model_hash = hashlib.md5(model_name.encode('utf-8')).hexdigest()
@@ -294,3 +293,18 @@ def store(session_id: str, query: str, response: str, system_prompt: str = "", m
 
 def clear_session_cache(session_id: str) -> None:
     cache_manager.clear_session_cache(session_id)
+
+def preload_conversational_cache() -> None:
+    """Pre-loads common conversational queries for instant <1ms cache hits."""
+    common_greetings = [
+        ("hello how are you", "I am doing great, thank you for asking! What is on your mind today?"),
+        ("who are you", "I am Saras, a real-time voice assistant built by Shivansh."),
+        ("what is your name", "My name is Saras, your real-time voice assistant."),
+    ]
+    for q, ans in common_greetings:
+        store("system", q, ans, "", "", [{"role": "user", "content": q}])
+
+try:
+    preload_conversational_cache()
+except Exception:
+    pass

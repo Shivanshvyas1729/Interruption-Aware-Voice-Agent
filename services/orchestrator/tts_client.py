@@ -313,7 +313,13 @@ def speak_stream_ws(session_id: str, turn_id: str, text: str, chunk_callback) ->
                 break
     except Exception as e:
         logger.log_error("tts_ws_stream_failed", session_id, turn_id, e)
-        raise
+        logger.log(
+            event_name="tts_ws_fallback",
+            session_id=session_id,
+            turn_id=turn_id,
+            detail={"msg": f"Falling back to REST speak_stream due to WS streaming error: {e}"}
+        )
+        speak_stream(session_id, turn_id, text, chunk_callback)
     finally:
         try:
             ws.close()
@@ -385,56 +391,61 @@ def speak_sentence_ws(
 
     start_time = time.time()
 
-    try:
-        ws_ctx.push(text, continue_=continue_)
-    except (TypeError, AttributeError) as probe_err:
-        logger.log(
-            event_name="tts_ws_continuation_unsupported",
-            session_id=session_id,
-            turn_id=turn_id,
-            detail={"error": str(probe_err), "fallback": "speak_stream_ws"},
-        )
-        raise  # TTSWorker catches this to degrade gracefully
+    from services.orchestrator.tts_connection_manager import get_connection_manager
+    conn_mgr = get_connection_manager()
+    recv_lock = conn_mgr.get_recv_lock(session_id)
 
-    first_audio_logged = False
-
-    for event in ws_ctx.receive():
-        if cancellation_manager.is_cancelled(session_id):
+    with recv_lock:
+        try:
+            ws_ctx.push(text, continue_=continue_)
+        except (TypeError, AttributeError) as probe_err:
             logger.log(
-                event_name="tts_ws_cancelled",
+                event_name="tts_ws_continuation_unsupported",
                 session_id=session_id,
                 turn_id=turn_id,
-                detail={"msg": "Cancellation detected mid-sentence"},
+                detail={"error": str(probe_err), "fallback": "speak_stream_ws"},
             )
-            try:
-                ws_ctx.cancel()
-            except Exception as ce:
-                logger.log_error("tts_ws_cancel_failed", session_id, turn_id, ce)
-            break
+            raise  # TTSWorker catches this to degrade gracefully
 
-        if event.type == "chunk":
-            if event.audio:
-                if not first_audio_logged:
-                    first_audio_logged = True
-                    latency_ms = int((time.time() - start_time) * 1000)
-                    logger.log(
-                        event_name="tts_first_audio",
-                        session_id=session_id,
-                        turn_id=turn_id,
-                        latency_ms=latency_ms,
-                        detail={"transport": "websocket_sentence"},
-                    )
-                chunk_callback(event.audio)
-        elif event.type == "timestamps":
-            if hasattr(event, "word_timestamps") and event.word_timestamps:
-                words = getattr(event.word_timestamps, "words", []) or []
-                starts = getattr(event.word_timestamps, "start", []) or []
-                for w, t in zip(words, starts):
-                    on_word_timestamp(session_id, w, t)
-        elif event.type == "error":
-            raise RuntimeError(f"Cartesia WS error event: {event.error}")
-        elif event.type == "done":
-            break
+        first_audio_logged = False
+
+        for event in ws_ctx.receive():
+            if cancellation_manager.is_cancelled(session_id):
+                logger.log(
+                    event_name="tts_ws_cancelled",
+                    session_id=session_id,
+                    turn_id=turn_id,
+                    detail={"msg": "Cancellation detected mid-sentence"},
+                )
+                try:
+                    ws_ctx.cancel()
+                except Exception as ce:
+                    logger.log_error("tts_ws_cancel_failed", session_id, turn_id, ce)
+                break
+
+            if event.type == "chunk":
+                if event.audio:
+                    if not first_audio_logged:
+                        first_audio_logged = True
+                        latency_ms = int((time.time() - start_time) * 1000)
+                        logger.log(
+                            event_name="tts_first_audio",
+                            session_id=session_id,
+                            turn_id=turn_id,
+                            latency_ms=latency_ms,
+                            detail={"transport": "websocket_sentence"},
+                        )
+                    chunk_callback(event.audio)
+            elif event.type == "timestamps":
+                if hasattr(event, "word_timestamps") and event.word_timestamps:
+                    words = getattr(event.word_timestamps, "words", []) or []
+                    starts = getattr(event.word_timestamps, "start", []) or []
+                    for w, t in zip(words, starts):
+                        on_word_timestamp(session_id, w, t)
+            elif event.type == "error":
+                raise RuntimeError(f"Cartesia WS error event: {event.error}")
+            elif event.type == "done":
+                break
 
 
 def close_ws_context(ws, session_id: str, turn_id: str) -> None:

@@ -1,0 +1,49 @@
+{
+  "generated_at": "2026-07-22T10:59:09.772222+00:00",
+  "log_path": "logs\\turn_timeline.log",
+  "total_turns_in_log": 102,
+  "completed_turns": 12,
+  "cancelled_turns": 0,
+  "superseded_turns": 90,
+  "error_turns": 0,
+  "llm_ttft": {
+    "count": 6,
+    "p50": 359.29,
+    "p95": 524.33,
+    "p99": 546.87,
+    "mean": 389.96,
+    "min_val": 298.47,
+    "max_val": 552.51
+  },
+  "tts_ttfc": {
+    "count": 0,
+    "p50": null,
+    "p95": null,
+    "p99": null,
+    "mean": null,
+    "min_val": null,
+    "max_val": null
+  },
+  "barge_in_kill": {
+    "count": 0,
+    "p50": null,
+    "p95": null,
+    "p99": null,
+    "mean": null,
+    "min_val": null,
+    "max_val": null
+  },
+  "end_to_end_turnaround": {
+    "count": 12,
+    "p50": 539.76,
+    "p95": 3346.63,
+    "p99": 5643.95,
+    "mean": 1001.66,
+    "min_val": 331.54,
+    "max_val": 6218.28
+  },
+  "barge_in_kill_p95_passes": null,
+  "turnaround_p95_passes": false,
+  "overall_pass": false,
+  "summary": "========================================================================\n  PIVOT Phase 11 -- Full Session Latency Eval Report\n  Generated : 2026-07-22 10:59:09 UTC\n  Source    : logs\\turn_timeline.log\n========================================================================\n\nTURN BREAKDOWN\n  Total turns in log    : 102\n  Completed (LLM hit)   : 12\n  Cancelled (user/barge): 0\n  Superseded (skipped)  : 90\n  Turns with errors     : 0\n\nLATENCY STATS\n  LLM TTFT (request -> first token)\n    n=6  p50=359.29ms  p95=524.33ms  p99=546.87ms  mean=389.96ms  min=298.47ms  max=552.51ms\n  TTS TTFC (request -> first audio chunk)\n    (no data)\n  Barge-in Kill (VAD->STT start) [PRD target: p95 < 300ms]\n    (no data)\n  End-to-End Turnaround (LLM request->playback end) [PRD target: p95 < 1500ms]\n    n=12  p50=539.76ms  p95=3346.63ms FAIL  p99=5643.95ms  mean=1001.66ms  min=331.54ms  max=6218.28ms\n\nPRD NON-FUNCTIONAL TARGETS\n  Barge-in kill p95   : N/A (no barge-in data)\n  Turnaround p95      : FAIL\n\n  OVERALL: ONE OR MORE TARGETS MISSED\n========================================================================"
+}

@@ -46,7 +46,7 @@ logger = get_logger("async-pipeline")
 
 
 class _SessionState:
-    __slots__ = ("turn_id", "current_reply", "resume_text", "spoken_words", "interrupted")
+    __slots__ = ("turn_id", "current_reply", "resume_text", "spoken_words", "interrupted", "last_transcript_time", "last_transcript_text")
 
     def __init__(self):
         self.turn_id: int = 0
@@ -54,6 +54,8 @@ class _SessionState:
         self.resume_text: str = ""
         self.spoken_words: list[str] = []
         self.interrupted: bool = False
+        self.last_transcript_time: float = 0.0
+        self.last_transcript_text: str = ""
 
 
 class FSMWorker(PipelineStage):
@@ -157,6 +159,7 @@ class FSMWorker(PipelineStage):
     # ------------------------------------------------------------------ #
 
     async def _handle_transcript(self, msg: TranscriptMessage):
+        import time as _time
         logger.log(
             "fsm_transcript_received", msg.session_id,
             str(getattr(msg, "turn_id", "0")),
@@ -174,6 +177,21 @@ class FSMWorker(PipelineStage):
 
         state = self._get_session(msg.session_id)
 
+        # ── Debounce: drop duplicate/rapid-fire submissions within 200ms ─────
+        now = _time.monotonic()
+        debounce_ms = vc_get("stt.transcript_debounce_ms", 200) / 1000.0
+        if (
+            msg.text.strip() == state.last_transcript_text.strip()
+            and (now - state.last_transcript_time) < debounce_ms
+        ):
+            logger.log(
+                "fsm_transcript_debounced", msg.session_id,
+                str(getattr(msg, "turn_id", "0")),
+                detail={"text": msg.text[:60], "gap_ms": round((now - state.last_transcript_time) * 1000, 1)},
+            )
+            return
+        state.last_transcript_time = now
+        state.last_transcript_text = msg.text
         # Evict / mark interrupted any stray pending entry from the previous turn
         prev_turn_key = (msg.session_id, state.turn_id)
         if prev_turn_key in self._pending_responses:
@@ -312,6 +330,31 @@ class FSMWorker(PipelineStage):
         else:
             max_tokens_override = limits["normal_max_tokens"]
             max_sentences_override = limits["normal_max_sentences"]
+
+        # ── Tool filler audio ─────────────────────────────────────────────
+        # If the query sounds like a tool invocation (e.g. "check my balance"),
+        # play a short filler phrase immediately so the agent isn't silent
+        # while the tool (or LLM deciding to call a tool) is executing.
+        # The filler is dispatched as is_final_sentence=False so TTS continues
+        # streaming the real LLM response as sentences arrive after it.
+        filler_keywords = vc_get(
+            "tools.filler_keywords",
+            ["balance", "transfer", "check", "look up", "lookup", "find", "search", "what is my", "how much"],
+        )
+        filler_phrase = vc_get("tools.filler_phrase", "Let me check that for you.")
+        if filler_phrase and any(kw in user_text_lower for kw in filler_keywords):
+            logger.log(
+                "fsm_tool_filler_injected", msg.session_id, turn_str,
+                detail={"filler": filler_phrase},
+            )
+            await self.tts_input.put(
+                TTSRequest(
+                    text=filler_phrase,
+                    session_id=msg.session_id,
+                    turn_id=state.turn_id,
+                    is_final_sentence=False,
+                )
+            )
 
         await self.llm_input.put(
             LLMRequest(

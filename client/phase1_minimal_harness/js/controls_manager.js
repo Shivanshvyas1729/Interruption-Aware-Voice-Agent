@@ -440,6 +440,7 @@ const triggerMetricsDownload = () => {
   report += "            PIVOT VOICE AGENT PERFORMANCE REPORT (IST)\n";
   report += "======================================================================\n";
   report += `Session ID:          ${payload.session_id || "unknown"}\n`;
+  report += `Model Name Used:     ${window.selectedModel || "llama-3.3-70b-versatile"}\n`;
   report += `Session Start Time:  ${getIST(payload.start_time)}\n`;
   report += `Export Time:         ${getIST()}\n`;
   report += "======================================================================\n\n";
@@ -482,14 +483,14 @@ const triggerMetricsDownload = () => {
 
       const turnTime = t.timestamp_ist || getIST(t.timestamp);
       const st = t.stage_timestamps || {};
-
-      const sttStartTimeStr = st.vad_start ? getIST(st.vad_start) : "-";
-      const sttEndTimeStr = st.stt_complete ? getIST(st.stt_complete) : "-";
-      const llm1stTimeStr = st.llm_first_token ? (st.llm_first_token !== "-" ? getIST(st.llm_first_token) : "-") : "-";
-      const llmCompTimeStr = st.llm_complete ? (st.llm_complete !== "-" ? getIST(st.llm_complete) : "-") : "-";
-      const tts1stTimeStr = st.tts_first_audio ? (st.tts_first_audio !== "-" ? getIST(st.tts_first_audio) : "-") : "-";
-      const playStartTimeStr = st.playback_start ? (st.playback_start !== "-" ? getIST(st.playback_start) : "-") : "-";
-      const playEndTimeStr = st.playback_end ? (st.playback_end !== "-" ? getIST(st.playback_end) : "-") : "-";
+      const fmtEmpty = (str) => (!str || str === "-" || str === " - ") ? "- [NOT FIRED / MISSING 🔴]" : str;
+      const sttStartTimeStr = fmtEmpty(st.vad_start ? getIST(st.vad_start) : "-");
+      const sttEndTimeStr = fmtEmpty(st.stt_complete ? getIST(st.stt_complete) : "-");
+      const llm1stTimeStr = fmtEmpty(st.llm_first_token && st.llm_first_token !== "-" ? getIST(st.llm_first_token) : "-");
+      const llmCompTimeStr = fmtEmpty(st.llm_complete && st.llm_complete !== "-" ? getIST(st.llm_complete) : "-");
+      const tts1stTimeStr = fmtEmpty(st.tts_first_audio && st.tts_first_audio !== "-" ? getIST(st.tts_first_audio) : "-");
+      const playStartTimeStr = fmtEmpty(st.playback_start && st.playback_start !== "-" ? getIST(st.playback_start) : "-");
+      const playEndTimeStr = fmtEmpty(st.playback_end && st.playback_end !== "-" ? getIST(st.playback_end) : "-");
 
       report += `Turn #${t.turn_index} [Time: ${turnTime}]:\n`;
       report += `  User Input:       "${t.user_query || "-"}"\n`;
@@ -502,9 +503,9 @@ const triggerMetricsDownload = () => {
       report += `  • STT Stage Call (Deepgram Cloud / Speech API Engine):\n`;
       report += `      - Call Start Time:       ${sttStartTimeStr}\n`;
       report += `      - Final Transcript Time: ${sttEndTimeStr}\n`;
-      report += `      - Spoken Input Duration: ${sttVal !== null ? sttVal + "ms" : "-"}\n`;
+      report += `      - Spoken Input Duration: ${sttVal !== null ? sttVal + "ms" : "- [NOT FIRED / MISSING 🔴]"}\n`;
       const sttFinalizationVal = t.stt_finalization !== undefined ? t.stt_finalization : 120;
-      report += `      - STT Finalization:      ${sttVal !== null ? getRating(sttFinalizationVal, 250, 400) : "-"}\n\n`;
+      report += `      - STT Finalization:      ${sttVal !== null ? getRating(sttFinalizationVal, 250, 400) : "- [NOT FIRED / MISSING 🔴]"}\n\n`;
 
       const llmLat = (llm1stVal !== null && orchVal !== null && llm1stVal >= orchVal) ? (llm1stVal - orchVal) : 191;
       const llmGenTime = (llmCompVal !== null && orchVal !== null && llmCompVal >= orchVal) ? (llmCompVal - orchVal) : 2440;
@@ -513,7 +514,7 @@ const triggerMetricsDownload = () => {
       report += `      - 1st Token Received:    ${llm1stTimeStr}\n`;
       report += `      - Generation Complete:   ${llmCompTimeStr}\n`;
       report += `      - TTFT Latency:          ${getRating(llmLat, 800, 1200)}\n`;
-      report += `      - Total Generation Time: ${llmGenTime !== null ? llmGenTime + "ms" : "-"}\n\n`;
+      report += `      - Total Generation Time: ${llmGenTime !== null ? llmGenTime + "ms" : "- [NOT FIRED / MISSING 🔴]"}\n\n`;
 
       const ttsLat = (tts1stVal !== null && llm1stVal !== null && tts1stVal >= llm1stVal) ? Math.min(220, tts1stVal - llm1stVal) : 140;
       report += `  • TTS Stage Call (Cartesia Cloud Sonic-3.5 WebSocket Engine):\n`;
@@ -527,14 +528,14 @@ const triggerMetricsDownload = () => {
       report += `      - Playback Start Time:   ${playStartTimeStr}\n`;
       report += `      - Playback End Time:     ${playEndTimeStr}\n`;
       report += `      - Response TTFB:         ${getRating(ttfbVal, 1200, 1800)}\n`;
-      report += `      - Audio Output Length:   ${playDur !== null ? playDur + "ms" : "-"}\n\n`;
+      report += `      - Audio Output Length:   ${playDur !== null ? playDur + "ms" : "- [NOT FIRED / MISSING 🔴]"}\n\n`;
 
       report += `  --------------------------------------------------------------------\n`;
       report += `  INFRASTRUCTURE & COMPONENT TAKEN TIMES (On-Premises vs API Cloud):\n`;
       report += `  --------------------------------------------------------------------\n`;
       report += `  • Cloud & API Services:\n`;
-      report += `      - Groq Cloud LLM TTFT:                  ${llmLat !== null ? getRating(llmLat, 800, 1200) : "-"}\n`;
-      report += `      - Cartesia Cloud TTS Synthesis:         ${ttsLat !== null ? getRating(ttsLat, 250, 400) : "-"}\n`;
+      report += `      - Groq Cloud LLM TTFT:                  ${llmLat !== null ? getRating(llmLat, 800, 1200) : "- [NOT FIRED / MISSING 🔴]"}\n`;
+      report += `      - Cartesia Cloud TTS Synthesis:         ${ttsLat !== null ? getRating(ttsLat, 250, 400) : "- [NOT FIRED / MISSING 🔴]"}\n`;
       report += `      - Redis Cloud State Store Query/Write:  18ms [GOOD 🟢 | Target <50ms]\n`;
       report += `  • On-Premises & Local Edge Services:\n`;
       report += `      - PIVOT FastFSM Orchestrator Dispatch: 1ms [GOOD 🟢 | Target <5ms]\n`;
@@ -567,14 +568,14 @@ const triggerMetricsDownload = () => {
   const avgOrch = countOrch > 0 ? Math.round(sumOrch / countOrch) : 1;
 
   report += `Total Recorded Turns:                       ${payload.turn_latency_records ? payload.turn_latency_records.length : 0}\n`;
-  report += `Average User Spoken Duration:               ${avgSpeech !== null ? avgSpeech + "ms" : "-"}\n`;
-  report += `Average STT Finalization (Speech API <250ms): ${avgSTT !== null ? getRating(avgSTT, 250, 400) : "-"}\n`;
-  report += `Average LLM TTFT (Groq Cloud <800ms):       ${avgLLM !== null ? getRating(avgLLM, 800, 1200) : "-"}\n`;
-  report += `Average TTS TTFC (Cartesia Cloud <250ms):   ${avgTTS !== null ? getRating(avgTTS, 250, 400) : "-"}\n`;
-  report += `Average Response Latency (TTFB <1200ms):    ${avgTTFB !== null ? getRating(avgTTFB, 1200, 1800) : "-"}\n`;
+  report += `Average User Spoken Duration:               ${avgSpeech !== null ? avgSpeech + "ms" : "- [NOT FIRED / MISSING 🔴]"}\n`;
+  report += `Average STT Finalization (Speech API <250ms): ${avgSTT !== null ? getRating(avgSTT, 250, 400) : "- [NOT FIRED / MISSING 🔴]"}\n`;
+  report += `Average LLM TTFT (Groq Cloud <800ms):       ${avgLLM !== null ? getRating(avgLLM, 800, 1200) : "- [NOT FIRED / MISSING 🔴]"}\n`;
+  report += `Average TTS TTFC (Cartesia Cloud <250ms):   ${avgTTS !== null ? getRating(avgTTS, 250, 400) : "- [NOT FIRED / MISSING 🔴]"}\n`;
+  report += `Average Response Latency (TTFB <1200ms):    ${avgTTFB !== null ? getRating(avgTTFB, 1200, 1800) : "- [NOT FIRED / MISSING 🔴]"}\n`;
   report += `Average Redis Cloud State Sync Latency:      ${getRating(avgRedis, 50, 100)}\n`;
   report += `Average FastFSM Orchestrator Latency:      ${getRating(avgOrch, 5, 10)}\n`;
-  report += `Average Total Turn Lifetime:                ${avgTotal !== null ? avgTotal + "ms" : "-"}\n\n`;
+  report += `Average Total Turn Lifetime:                ${avgTotal !== null ? avgTotal + "ms" : "- [NOT FIRED / MISSING 🔴]"}\n\n`;
 
   if (payload.system_snapshots && payload.system_snapshots.length > 0) {
     let cpuSum = 0, cpuCount = 0;
@@ -639,6 +640,17 @@ if (downloadMetricsBtn) {
 const downloadMetricsTopBtn = document.getElementById("download-metrics-top-btn");
 if (downloadMetricsTopBtn) {
   downloadMetricsTopBtn.addEventListener("click", triggerMetricsDownload);
+}
+
+const modelSelectDropdown = document.getElementById("model-select-dropdown");
+if (modelSelectDropdown) {
+  modelSelectDropdown.addEventListener("change", (e) => {
+    window.selectedModel = e.target.value;
+    console.log("[UI] Selected LLM Model:", window.selectedModel);
+    if (window.renderLogEvent) {
+      window.renderLogEvent({ event: "model_changed", detail: { model: window.selectedModel } });
+    }
+  });
 }
 
 // Master Sidebar Action Buttons triggers

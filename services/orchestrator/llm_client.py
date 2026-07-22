@@ -1,4 +1,5 @@
 import time
+from typing import Optional
 from common.config.settings import get_settings
 from common.config.voice_settings import get as vc_get
 from common.logging.logger import get_logger
@@ -142,18 +143,44 @@ _SENTENCE_END_RE = None  # compiled lazily once at module level
 
 
 def _get_sentence_re():
-    """Return the compiled sentence-boundary regex, building it on first call."""
+    """Return the compiled sentence-boundary regex, building it on first call.
+
+    Split points (in priority order):
+      • Period/exclamation/question mark followed by whitespace (excluding common
+        abbreviations via negative lookbehind).
+      • Semicolon followed by whitespace — clause-level boundary.
+      • Comma followed by whitespace — allows TTS to begin streaming mid-sentence,
+        dramatically reducing Time-To-First-Audio (TTFA) for long opening clauses.
+    """
     import re
     global _SENTENCE_END_RE
     if _SENTENCE_END_RE is None:
-        # Split after .  !  ?  or newline, only when followed by whitespace.
-        # Exclude common abbreviations (Mr., Dr., etc., vs., e.g., i.e.) via negative lookbehind.
+        # 1. Sentence-ending punctuation (. ! ? \n) with abbreviation exclusion.
         abbrev_lookbehind = (
             r'(?<!\bMr)(?<!\bDr)(?<!\betc)(?<!\bvs)(?<!\be\.g)(?<!\bi\.e)'
         )
-        pattern = rf'(?:(?<=[!?\n,;:—])|(?<={abbrev_lookbehind}\.))\s+'
+        sentence_end = rf'(?:(?<=[!?\n])|(?<={abbrev_lookbehind}\.))\s+'
+        # 2. Semicolons — strong clause boundary, split aggressively.
+        semicolon = r'(?<=;)\s+'
+        # 3. Commas — weaker boundary; only split when followed by a space so
+        #    we don't break on decimal numbers (1,234) or quoted lists.
+        comma = r'(?<=,)\s+(?=[A-Za-z])'
+        pattern = rf'(?:{sentence_end}|{semicolon}|{comma})'
         _SENTENCE_END_RE = re.compile(pattern, re.IGNORECASE)
     return _SENTENCE_END_RE
+
+
+def select_model(query: str, requested_model: Optional[str] = None) -> str:
+    """Routes short/simple conversational queries to fast model or respects requested model from UI/settings."""
+    settings = get_settings()
+    if requested_model:
+        return requested_model
+    if settings.openai_model and settings.openai_model != "openai/gpt-oss-20b":
+        return settings.openai_model
+    words = query.strip().lower().split()
+    if len(words) <= 8 or any(w in query.lower() for w in ["hello", "hi", "hey", "who are you", "how are you"]):
+        return vc_get("llm.fast_model", "llama-3.1-8b-instant")
+    return settings.groq_model or "llama-3.3-70b-versatile"
 
 
 def call_primary_streaming(
@@ -224,7 +251,7 @@ def call_primary_streaming(
         return full_text
 
     # ------------------------------------------------------------------ #
-    # 3. Circuit breaker open — OpenAI fallback (buffered, single sentence)#
+    # 3. Circuit breaker open — OpenAI fallback (streaming)               #
     # ------------------------------------------------------------------ #
     if failover.primary_circuit_breaker.is_open():
         logger.log(
@@ -233,10 +260,7 @@ def call_primary_streaming(
             turn_id=turn_id,
             detail={"reason": "circuit_breaker_open (streaming path)"},
         )
-        full_text = failover._call_fallback(session_id, turn_id, messages)
-        from services.orchestrator.async_pipeline import get_current_turn
-        if full_text and not cancellation_manager.is_cancelled(session_id) and int(turn_id) >= get_current_turn(session_id):
-            sentence_callback(full_text)
+        full_text = failover._call_fallback(session_id, turn_id, messages, sentence_callback)
         cache_client.store(session_id, query, full_text, system_prompt, model_name, messages)
         return full_text
 
@@ -247,25 +271,46 @@ def call_primary_streaming(
 
     budget = get_token_budget(session_id)
     context_history = prepare_context(messages, session_id)
-    payload = [{"role": "system", "content": system_prompt}] + context_history
+    # Inject short-sentence directive to minimise TTFA — the LLM generates
+    # shorter clauses so the first TTS dispatch happens sooner.  We prepend
+    # rather than replace so the full persona prompt is preserved.
+    latency_prompt = (
+        "IMPORTANT: Keep every sentence very short and punchy (10 words max). "
+        "Speak in short bursts — never write a long opening clause. " + system_prompt
+    )
+    payload = [{"role": "system", "content": latency_prompt}] + context_history
 
     prompt_tokens = estimate_tokens(system_prompt) + sum(
         estimate_tokens(m.get("content", "")) for m in context_history
     )
     budget.record_prompt(prompt_tokens)
 
-    from groq import Groq
-    client = Groq(api_key=api_key)
+    final_max_tokens = max_tokens if max_tokens is not None else vc_get("llm.max_tokens", 256)
+    model_to_use = select_model(query)
     start_time = time.time()
 
     try:
-        final_max_tokens = max_tokens if max_tokens is not None else vc_get("llm.max_tokens", 256)
-        chat_completion = client.chat.completions.create(
-            messages=payload,
-            model=settings.groq_model,
-            stream=True,
-            max_tokens=final_max_tokens,
-        )
+        if model_to_use.startswith("openai/") or model_to_use.startswith("gpt-"):
+            import openai
+            kw = {"api_key": settings.openai_api_key or "dummy"}
+            if settings.openai_base_url:
+                kw["base_url"] = settings.openai_base_url
+            client = openai.OpenAI(**kw)
+            chat_completion = client.chat.completions.create(
+                messages=payload,
+                model=model_to_use,
+                stream=True,
+                max_tokens=final_max_tokens,
+            )
+        else:
+            from groq import Groq
+            client = Groq(api_key=api_key)
+            chat_completion = client.chat.completions.create(
+                messages=payload,
+                model=model_to_use,
+                stream=True,
+                max_tokens=final_max_tokens,
+            )
     except Exception as connect_err:
         # Groq connect failed — fall back to OpenAI synchronously
         failover.primary_circuit_breaker.record_failure(session_id, turn_id)
@@ -276,10 +321,7 @@ def call_primary_streaming(
             turn_id=turn_id,
             detail={"reason": f"groq_connect_failed: {connect_err}"},
         )
-        full_text = failover._call_fallback(session_id, turn_id, messages)
-        from services.orchestrator.async_pipeline import get_current_turn
-        if full_text and not cancellation_manager.is_cancelled(session_id) and int(turn_id) >= get_current_turn(session_id):
-            sentence_callback(full_text)
+        full_text = failover._call_fallback(session_id, turn_id, messages, sentence_callback)
         cache_client.store(session_id, query, full_text, system_prompt, model_name, messages)
         return full_text
 

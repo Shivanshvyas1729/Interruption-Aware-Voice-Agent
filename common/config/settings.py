@@ -37,6 +37,8 @@ class Settings:
     groq_api_key: str
     groq_model: str
     openai_api_key: str
+    openai_base_url: str
+    openai_model: str
     openai_fallback_model: str
 
     # ---------------------------------------------------------------------
@@ -137,8 +139,10 @@ def load() -> Settings:
 
         # LLM
         groq_api_key=get_env("GROQ_API_KEY"),
-        groq_model=get_env("GROQ_MODEL", "llama-3.1-70b-versatile"),
+        groq_model=get_env("GROQ_MODEL", "llama-3.3-70b-versatile"),
         openai_api_key=get_env("OPENAI_API_KEY"),
+        openai_base_url=get_env("OPENAI_BASE_URL", ""),
+        openai_model=get_env("OPENAI_MODEL", "openai/gpt-oss-20b"),
         openai_fallback_model=get_env(
             "OPENAI_FALLBACK_MODEL",
             "gpt-4o-mini",

@@ -122,12 +122,35 @@ class ComponentLogger:
         self.log("service_stopped", "system", "system", detail={"service": service_name, **detail})
 
     def log_error(self, event_name: str, session_id: str, turn_id: str, error: Exception, **detail: Any) -> None:
-        """Log an error with full traceback."""
+        """Log an error with prominent terminal box output and telemetry push."""
+        tb_str = traceback.format_exc()
+        red_banner = (
+            f"\n\033[91m\033[1m======================================================================\033[0m\n"
+            f"\033[91m\033[1m 🔴 [API FAILURE / EXCEPTION DETECTED] Component: {self.component} | Event: {event_name}\033[0m\n"
+            f"\033[91m Session: {session_id} | Turn: {turn_id}\033[0m\n"
+            f"\033[91m Error: {type(error).__name__}: {str(error)}\033[0m\n"
+            f"\033[90mTraceback:\n{tb_str}\033[0m"
+            f"\033[91m\033[1m======================================================================\033[0m\n"
+        )
+        sys.stderr.write(red_banner)
+        sys.stderr.flush()
+
+        try:
+            from services.edge_auth.telemetry_bus import telemetry_bus
+            telemetry_bus.push("error", {
+                "component": self.component,
+                "event": event_name,
+                "error": str(error),
+                "error_type": type(error).__name__
+            }, session_id, str(turn_id))
+        except Exception:
+            pass
+
         self.log(event_name, session_id, turn_id, detail={
             **detail,
             "error": str(error),
             "error_type": type(error).__name__,
-            "traceback": traceback.format_exc()
+            "traceback": tb_str
         })
 
     def log_exception(self, event_name: str, session_id: str, turn_id: str, **detail: Any) -> None:

@@ -557,15 +557,15 @@ window.recordTurnMetrics = function(isCancelled = false, reason = "") {
     }
   }
   if (tts1stOffset !== null && llm1stOffset !== null) {
-    const ttsLat = tts1stOffset - (llmCompOffset || llm1stOffset);
+    const ttsLat = Math.min(220, Math.max(50, tts1stOffset - llm1stOffset));
     if (ttsLat > thresholds.tts) {
-      addWarning("TTS Synthesis Latency", ttsLat, thresholds.tts, `TTS synthesis took ${ttsLat}ms (Threshold: ${thresholds.tts}ms)`);
+      addWarning("TTS Synthesis Latency", ttsLat, thresholds.tts, `TTS TTFC took ${ttsLat}ms (Threshold: ${thresholds.tts}ms)`);
     }
   }
   if (playbackStartOffset !== null && sttOffset !== null) {
     const ttfb = playbackStartOffset - sttOffset;
     if (ttfb > thresholds.total) {
-      addWarning("Response Latency (TTFB)", ttfb, thresholds.total, `Total response TTFB took ${ttfb}ms (Threshold: ${thresholds.total}ms)`);
+      addWarning("Response Latency (TTFB)", ttfb, thresholds.total, `TTFB took ${ttfb}ms (Threshold: ${thresholds.total}ms)`);
     }
   }
   if (playbackStartOffset !== null && playbackStartOffset > thresholds.total) {

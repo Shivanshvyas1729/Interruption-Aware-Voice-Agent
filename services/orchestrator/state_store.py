@@ -1,4 +1,5 @@
 import json
+import threading
 from common.config.settings import get_settings
 from common.logging.logger import get_logger
 
@@ -7,6 +8,7 @@ logger = get_logger("state-store")
 # In-memory database fallback for testing/offline mode
 _memory_db = {}
 _memory_db_access = {}
+_memory_lock = threading.Lock()
 MAX_MEMORY_SESSIONS = 100
 MEMORY_TTL = 7200  # 2 hours (7200s)
 
@@ -15,19 +17,20 @@ def _cleanup_memory_db():
     """Prunes expired or least recently used sessions from Python RAM to prevent memory leaks."""
     import time
     now = time.time()
-    # 1. Remove sessions idle for more than 2 hours
-    expired_keys = [k for k, last_time in _memory_db_access.items() if now - last_time > MEMORY_TTL]
-    for k in expired_keys:
-        _memory_db.pop(k, None)
-        _memory_db_access.pop(k, None)
-    
-    # 2. Enforce capacity limit (MAX_MEMORY_SESSIONS = 100) using LRU strategy
-    if len(_memory_db) > MAX_MEMORY_SESSIONS:
-        sorted_sessions = sorted(_memory_db_access.items(), key=lambda x: x[1])
-        to_evict = len(_memory_db) - MAX_MEMORY_SESSIONS
-        for k, _ in sorted_sessions[:to_evict]:
+    with _memory_lock:
+        # 1. Remove sessions idle for more than 2 hours
+        expired_keys = [k for k, last_time in _memory_db_access.items() if now - last_time > MEMORY_TTL]
+        for k in expired_keys:
             _memory_db.pop(k, None)
             _memory_db_access.pop(k, None)
+        
+        # 2. Enforce capacity limit (MAX_MEMORY_SESSIONS = 100) using LRU strategy
+        if len(_memory_db) > MAX_MEMORY_SESSIONS:
+            sorted_sessions = sorted(_memory_db_access.items(), key=lambda x: x[1])
+            to_evict = len(_memory_db) - MAX_MEMORY_SESSIONS
+            for k, _ in sorted_sessions[:to_evict]:
+                _memory_db.pop(k, None)
+                _memory_db_access.pop(k, None)
 
 
 # Singleton Redis client
@@ -240,10 +243,11 @@ def save_turn(session_id: str, turn_id: str, role: str, content: str):
     new_message = {"role": role, "content": content}
     
     # 1. Tier 1: Write to local RAM dictionary immediately (fastest read path)
-    if session_id not in _memory_db:
-        _memory_db[session_id] = []
-    _memory_db[session_id].append(new_message)
-    _memory_db_access[session_id] = time.time()
+    with _memory_lock:
+        if session_id not in _memory_db:
+            _memory_db[session_id] = []
+        _memory_db[session_id].append(new_message)
+        _memory_db_access[session_id] = time.time()
     _cleanup_memory_db()
 
     # 3. Tier 3: Sync to Redis Cloud if active
@@ -289,11 +293,12 @@ def load_history(session_id: str) -> list[dict]:
     """Retrieve complete list of turns hierarchically (RAM -> Redis Cloud -> Local Redis)."""
     import time
     # 1. Tier 1: Return from Python RAM dictionary instantly (0ms read latency)
-    if session_id in _memory_db and len(_memory_db[session_id]) > 0:
-        import copy
-        _memory_db_access[session_id] = time.time()
-        _cleanup_memory_db()
-        return copy.deepcopy(_memory_db[session_id])
+    with _memory_lock:
+        if session_id in _memory_db and len(_memory_db[session_id]) > 0:
+            import copy
+            _memory_db_access[session_id] = time.time()
+            return copy.deepcopy(_memory_db[session_id])
+    _cleanup_memory_db()
 
     # 2. Tier 3: If cold start, fetch from Redis Cloud (Source of Truth)
     cloud_client = get_cloud_redis_client()

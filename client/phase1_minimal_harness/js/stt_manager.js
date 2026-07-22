@@ -168,7 +168,7 @@ window.startSpeechRecognition = function() {
     let interimText = "";
     let finalText = "";
 
-    for (let i = 0; i < event.results.length; ++i) {
+    for (let i = event.resultIndex; i < event.results.length; ++i) {
       const res = event.results[i];
       if (res.isFinal) {
         finalText += res[0].transcript;

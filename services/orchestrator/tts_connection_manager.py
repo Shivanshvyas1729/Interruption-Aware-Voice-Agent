@@ -28,11 +28,20 @@ class TTSConnectionManager:
         self._last_accessed: dict[str, float] = {}
         self._in_flight_events: dict[str, threading.Event] = {}
         self._failed_continuation: set[str] = set()
+        self._recv_locks: dict[str, threading.Lock] = {}
         self._reaper_task: Optional[asyncio.Task] = None
+        self._keepalive_task: Optional[asyncio.Task] = None
         self._started = False
 
+    def get_recv_lock(self, session_id: str) -> threading.Lock:
+        """Returns per-session thread lock for serializing WebSocket reads."""
+        with self._lock:
+            if session_id not in self._recv_locks:
+                self._recv_locks[session_id] = threading.Lock()
+            return self._recv_locks[session_id]
+
     def start(self, loop: Optional[asyncio.AbstractEventLoop] = None) -> None:
-        """Starts the idle socket reaper background task."""
+        """Starts the idle socket reaper and keep-alive background tasks."""
         if self._started:
             return
         self._started = True
@@ -41,14 +50,19 @@ class TTSConnectionManager:
             self._reaper_task = active_loop.create_task(
                 self._idle_reaper_loop(), name="tts-idle-reaper"
             )
+            self._keepalive_task = active_loop.create_task(
+                self._keepalive_loop(), name="tts-ws-keepalive"
+            )
         except RuntimeError:
             pass
 
     def shutdown(self) -> None:
-        """Closes all open WebSockets and cancels background reaper."""
-        if self._reaper_task and not self._reaper_task.done():
-            self._reaper_task.cancel()
-            self._reaper_task = None
+        """Closes all open WebSockets and cancels background tasks."""
+        for task_attr in ("_reaper_task", "_keepalive_task"):
+            task = getattr(self, task_attr, None)
+            if task and not task.done():
+                task.cancel()
+            setattr(self, task_attr, None)
         with self._lock:
             sessions = list(self._ws_sessions.items())
             self._ws_sessions.clear()
@@ -153,12 +167,41 @@ class TTSConnectionManager:
             }
 
     async def _idle_reaper_loop(self):
+        from common.config.voice_settings import get as vc_get
         while self._started:
             try:
                 await asyncio.sleep(15.0)
             except asyncio.CancelledError:
                 break
-            self._reap_idle_sockets(idle_timeout_s=60.0)
+            idle_timeout_s = float(vc_get("tts.ws_idle_timeout_s", 300.0))
+            self._reap_idle_sockets(idle_timeout_s=idle_timeout_s)
+
+    async def _keepalive_loop(self):
+        """Sends a lightweight JSON ping to all open Cartesia WebSockets on a
+        regular interval to prevent the remote server from closing idle
+        connections and causing cold-start penalties on the next turn."""
+        from common.config.voice_settings import get as vc_get
+        while self._started:
+            interval_s = float(vc_get("tts.ws_keepalive_interval_s", 45.0))
+            try:
+                await asyncio.sleep(interval_s)
+            except asyncio.CancelledError:
+                break
+            with self._lock:
+                sessions = list(self._ws_sessions.items())
+            for session_id, (ws, _) in sessions:
+                try:
+                    # Cartesia streaming WebSocket accepts a JSON ping frame.
+                    import json
+                    ws.send(json.dumps({"type": "ping"}))
+                    logger.log(
+                        "tts_ws_keepalive_sent", session_id, "system", detail={}
+                    )
+                except Exception as e:
+                    # If the ping fails the socket is already dead; evict it so
+                    # the next acquire() creates a fresh connection.
+                    logger.log_error("tts_ws_keepalive_failed", session_id, "system", e)
+                    self.release(session_id, failed=True)
 
     def _reap_idle_sockets(self, idle_timeout_s: float = 60.0) -> None:
         now = time.time()

@@ -96,27 +96,20 @@ class TTSWorker(PipelineStage):
     async def _process_request(
         self, req: TTSRequest, prev_task: "asyncio.Task | None"
     ):
-        if prev_task is not None:
-            if not prev_task.done():
-                try:
-                    await prev_task
-                except asyncio.CancelledError:
-                    pass
-                except Exception as e:
-                    logger.log_error(
-                        "tts_prior_task_failed", req.session_id, str(req.turn_id), e
-                    )
-            else:
-                if not prev_task.cancelled():
-                    try:
-                        exc = prev_task.exception()
-                        if exc is not None:
-                            logger.log_error(
-                                "tts_prior_task_failed",
-                                req.session_id, str(req.turn_id), exc,
-                            )
-                    except Exception:
-                        pass
+        conn_mgr = get_connection_manager()
+        tok = get_cancel_token(req.session_id)
+        if tok.is_cancelled:
+            return
+
+        if prev_task is not None and not prev_task.done():
+            prev_task.cancel()
+            try:
+                await asyncio.wait_for(asyncio.shield(prev_task), timeout=0.05)
+            except (asyncio.CancelledError, asyncio.TimeoutError, Exception):
+                pass
+            # Force-drop the stale WS context so the new turn always gets a fresh
+            # connection — this prevents concurrent recv() across turns (ConcurrencyError).
+            conn_mgr.release(req.session_id, cancelled=True)
 
         tok = get_cancel_token(req.session_id)
         if tok.is_cancelled:
@@ -193,11 +186,23 @@ class TTSWorker(PipelineStage):
             str(req.turn_id),
         )
 
+        first_chunk_fired = [False]
+
         def chunk_callback(chunk_data: bytes) -> None:
             if get_cancel_token(req.session_id).is_cancelled:
                 return
             if get_current_turn(req.session_id) != req.turn_id:
                 return
+            if not first_chunk_fired[0]:
+                first_chunk_fired[0] = True
+                latency_ms = int((time.time() - start_time) * 1000)
+                loop.call_soon_threadsafe(
+                    telemetry_bus.push,
+                    "tts_first_audio",
+                    {"latency_ms": latency_ms},
+                    req.session_id,
+                    str(req.turn_id),
+                )
             loop.call_soon_threadsafe(
                 telemetry_bus.push,
                 "tts_chunk",

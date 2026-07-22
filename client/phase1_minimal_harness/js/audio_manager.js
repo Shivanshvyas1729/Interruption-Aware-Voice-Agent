@@ -23,11 +23,17 @@ window.connectWebSocketStream = function() {
     if (!window.audioContext) {
       window.audioContext = new AudioCtx();
     }
-    if (window.audioContext.state === "suspended") {
-      window.audioContext.resume().then(() => {
-        console.log("[Audio] AudioContext resumed after user gesture");
-      });
-    }
+    const unlockAudio = () => {
+      if (window.audioContext && window.audioContext.state === "suspended") {
+        window.audioContext.resume().then(() => {
+          console.log("[Audio] AudioContext resumed after user gesture");
+        });
+      }
+    };
+    unlockAudio();
+    document.addEventListener("click", unlockAudio);
+    document.addEventListener("pointerdown", unlockAudio);
+    document.addEventListener("touchstart", unlockAudio);
     window.audioStartTime = window.audioContext.currentTime;
   };
   

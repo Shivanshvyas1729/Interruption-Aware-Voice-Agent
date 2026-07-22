@@ -601,6 +601,17 @@
         </div>
 
         <div style="display: flex; align-items: center; gap: 10px;">
+          <!-- Model Selection Dropdown -->
+          <div style="display: flex; align-items: center; gap: 6px; background: rgba(0, 0, 0, 0.4); padding: 5px 12px; border-radius: 10px; border: 1px solid rgba(255, 255, 255, 0.1);">
+            <span style="font-size: 0.75rem; color: #a78bfa; font-weight: 700; text-transform: uppercase;">Model:</span>
+            <select id="model-select-dropdown" style="background: transparent; color: #f3f4f6; border: none; font-size: 0.8rem; font-weight: 600; cursor: pointer; outline: none;">
+              <option value="openai/gpt-oss-20b" style="background: #0f172a; color: #fff;">openai/gpt-oss-20b (OpenAI)</option>
+              <option value="gpt-4o-mini" style="background: #0f172a; color: #fff;">gpt-4o-mini (Fallback)</option>
+              <option value="llama-3.3-70b-versatile" style="background: #0f172a; color: #fff;">llama-3.3-70b-versatile (Groq 70B)</option>
+              <option value="llama-3.1-8b-instant" style="background: #0f172a; color: #fff;">llama-3.1-8b-instant (Groq 8B Fast)</option>
+            </select>
+          </div>
+
           <!-- Docs Modal Toggle Button -->
           <button id="toggle-docs-modal-btn" class="btn" style="background: rgba(16,185,129,0.12); border: 1px solid rgba(16,185,129,0.3); color: #34d399; padding: 8px 14px; border-radius: 10px; font-size: 0.78rem; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 6px;">
             Documentation

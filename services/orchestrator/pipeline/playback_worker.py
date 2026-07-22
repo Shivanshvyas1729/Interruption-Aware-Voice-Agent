@@ -54,12 +54,16 @@ class PlaybackWorker(PipelineStage):
 
     def register_client(self, session_id: str, queue: asyncio.Queue):
         self._clients[session_id] = queue
-        self._spoken_duration[session_id] = 0.0
-        self._session_queues[session_id] = asyncio.Queue()
-        self._session_tasks[session_id] = asyncio.create_task(
-            self._process_session(session_id),
-            name=f"playback-session-{session_id}",
-        )
+        if session_id not in self._spoken_duration:
+            self._spoken_duration[session_id] = 0.0
+        if session_id not in self._session_queues:
+            self._session_queues[session_id] = asyncio.Queue()
+        task = self._session_tasks.get(session_id)
+        if not task or task.done():
+            self._session_tasks[session_id] = asyncio.create_task(
+                self._process_session(session_id),
+                name=f"playback-session-{session_id}",
+            )
 
     def unregister_client(self, session_id: str):
         self._clients.pop(session_id, None)
@@ -124,38 +128,39 @@ class PlaybackWorker(PipelineStage):
         if not q_internal:
             return
 
-        while not self._cancel_event.is_set():
-            try:
-                chunk = await q_internal.get()
-            except asyncio.CancelledError:
-                break
+        try:
+            while not self._cancel_event.is_set():
+                try:
+                    chunk = await q_internal.get()
+                except asyncio.CancelledError:
+                    break
 
-            try:
-                tok = get_cancel_token(chunk.session_id)
-                if tok.is_cancelled:
-                    logger.log(
-                        "playback_skipped_cancelled",
-                        chunk.session_id, str(chunk.turn_id), detail={},
-                    )
-                    self._playback_started.pop(chunk.session_id, None)
-                    continue
-
-                if isinstance(chunk, AudioChunk):
-                    current_turn = get_current_turn(chunk.session_id)
-                    if chunk.turn_id < current_turn:
+                try:
+                    tok = get_cancel_token(chunk.session_id)
+                    if tok.is_cancelled:
                         logger.log(
-                            "playback_skipped_stale_turn",
-                            chunk.session_id, str(chunk.turn_id),
-                            detail={"current_turn": current_turn},
+                            "playback_skipped_cancelled",
+                            chunk.session_id, str(chunk.turn_id), detail={},
                         )
                         self._playback_started.pop(chunk.session_id, None)
                         continue
 
-                q_client = self._clients.get(chunk.session_id)
-                if q_client:
-                    if isinstance(chunk, AudioChunk) and chunk.data:
-                        if chunk.session_id not in self._playback_started:
-                            self._playback_started[chunk.session_id] = time.time()
+                    if isinstance(chunk, AudioChunk):
+                        current_turn = get_current_turn(chunk.session_id)
+                        if chunk.turn_id < current_turn:
+                            logger.log(
+                                "playback_skipped_stale_turn",
+                                chunk.session_id, str(chunk.turn_id),
+                                detail={"current_turn": current_turn},
+                            )
+                            self._playback_started.pop(chunk.session_id, None)
+                            continue
+
+                    q_client = self._clients.get(chunk.session_id)
+                    if q_client:
+                        if isinstance(chunk, AudioChunk) and chunk.data:
+                            if chunk.session_id not in self._playback_started:
+                                self._playback_started[chunk.session_id] = time.time()
                             telemetry_bus.push(
                                 "playback_start", {},
                                 chunk.session_id, str(chunk.turn_id),
@@ -184,48 +189,51 @@ class PlaybackWorker(PipelineStage):
                             }
                         )
 
-                # Emit playback_end + turn_complete on sentinel
-                if isinstance(chunk, AudioChunk) and chunk.is_last:
-                    start_time = self._playback_started.pop(chunk.session_id, None)
-                    telemetry_bus.push(
-                        "playback_end", {},
-                        chunk.session_id, str(chunk.turn_id),
-                    )
-                    if start_time:
-                        total_latency_ms = int((time.time() - start_time) * 1000)
+                    # Emit playback_end + turn_complete on sentinel
+                    if isinstance(chunk, AudioChunk) and chunk.is_last:
+                        start_time = self._playback_started.pop(chunk.session_id, None)
                         telemetry_bus.push(
-                            "turn_complete",
-                            {"total_latency_ms": total_latency_ms},
+                            "playback_end", {},
                             chunk.session_id, str(chunk.turn_id),
                         )
-
-                    # Notify FSMWorker that playback is done
-                    from .voice_pipeline import get_pipeline
-                    pipeline = get_pipeline()
-                    if (
-                        pipeline
-                        and pipeline.fsm
-                        and hasattr(pipeline.fsm, "playback_done_input")
-                        and pipeline.fsm.playback_done_input
-                    ):
-                        pipeline.fsm.playback_done_input.put_nowait(
-                            PlaybackDoneMessage(
-                                session_id=chunk.session_id,
-                                turn_id=chunk.turn_id,
+                        if start_time:
+                            total_latency_ms = int((time.time() - start_time) * 1000)
+                            telemetry_bus.push(
+                                "turn_complete",
+                                {"total_latency_ms": total_latency_ms},
+                                chunk.session_id, str(chunk.turn_id),
                             )
-                        )
 
-            except asyncio.CancelledError:
-                break
-            except Exception as e:
-                logger.log_error(
-                    "playback_worker_session_error",
-                    chunk.session_id, str(chunk.turn_id), e,
-                )
-                telemetry_bus.push(
-                    "error",
-                    {"message": f"Playback Stage Session Error: {e}"},
-                    chunk.session_id, str(chunk.turn_id),
-                )
-            finally:
-                q_internal.task_done()
+                        # Notify FSMWorker that playback is done
+                        from .voice_pipeline import get_pipeline
+                        pipeline = get_pipeline()
+                        if (
+                            pipeline
+                            and pipeline.fsm
+                            and hasattr(pipeline.fsm, "playback_done_input")
+                            and pipeline.fsm.playback_done_input
+                        ):
+                            pipeline.fsm.playback_done_input.put_nowait(
+                                PlaybackDoneMessage(
+                                    session_id=chunk.session_id,
+                                    turn_id=chunk.turn_id,
+                                )
+                            )
+
+                except asyncio.CancelledError:
+                    break
+                except Exception as e:
+                    logger.log_error(
+                        "playback_worker_session_error",
+                        chunk.session_id, str(chunk.turn_id), e,
+                    )
+                    telemetry_bus.push(
+                        "error",
+                        {"message": f"Playback Stage Session Error: {e}"},
+                        chunk.session_id, str(chunk.turn_id),
+                    )
+                finally:
+                    q_internal.task_done()
+        finally:
+            self._playback_started.pop(session_id, None)
+            self._spoken_duration.pop(session_id, None)

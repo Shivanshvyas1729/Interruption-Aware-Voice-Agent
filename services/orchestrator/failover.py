@@ -120,14 +120,27 @@ def call_with_failover(session_id: str, turn_id: str, messages: list[dict]) -> s
             # Raise a clean standard error without leaking details
             raise RuntimeError("The service is temporarily unavailable. Please try again later.")
 
-def _call_fallback(session_id: str, turn_id: str, messages: list[dict]) -> str:
-    """Calls the fallback OpenAI provider silently maintaining consistency."""
+def _call_fallback(
+    session_id: str,
+    turn_id: str,
+    messages: list[dict],
+    sentence_callback=None,
+) -> str:
+    """Calls the fallback OpenAI provider with streaming enabled.
+
+    Parameters
+    ----------
+    sentence_callback : callable | None
+        If provided, called with each complete sentence (str) as it is
+        streamed.  Mirrors the primary Groq path so TTS can start
+        immediately rather than waiting for the full response buffer.
+    """
     settings = get_settings()
     start_time = time.time()
-    
+
     # Check if fallback key is set
     fallback_key = settings.openai_api_key
-    
+
     if not fallback_key or fallback_key == "dummy_val" or settings.env == "test":
         # Mock OpenAI response for testing
         time.sleep(vc_get("llm.mock_sleep_ms", 50) / 1000.0)
@@ -137,48 +150,98 @@ def _call_fallback(session_id: str, turn_id: str, messages: list[dict]) -> str:
             session_id=session_id,
             turn_id=turn_id,
             latency_ms=latency_ms,
-            detail={"provider": "openai"}
+            detail={"provider": "openai"},
         )
         logger.log(
             event_name="llm_complete",
             session_id=session_id,
             turn_id=turn_id,
             latency_ms=latency_ms + 10,
-            detail={"provider": "openai"}
+            detail={"provider": "openai"},
         )
         # Verify persona consistency: return identical response formatting
         last_user_message = messages[-1]["content"].lower() if messages else ""
         if "mars" in last_user_message:
-            return "Mars is the fourth planet from the Sun and the second-smallest planet in the Solar System."
+            full_text = "Mars is the fourth planet from the Sun and the second-smallest planet in the Solar System."
         elif "far" in last_user_message or "distance" in last_user_message:
-            return "It is about 225 million kilometers away from Earth on average."
+            full_text = "It is about 225 million kilometers away from Earth on average."
         else:
-            return "You're welcome!"
+            full_text = "You're welcome!"
+        if sentence_callback and full_text:
+            sentence_callback(full_text)
+        return full_text
 
-    # Real OpenAI call
     import openai
-    client = openai.OpenAI(api_key=fallback_key)
+    kw = {"api_key": fallback_key}
+    if settings.openai_base_url:
+        kw["base_url"] = settings.openai_base_url
+    client = openai.OpenAI(**kw)
     system_prompt = vc_get("llm.system_prompt", "You are a helpful, concise voice assistant.")
-    
+
     payload = [
         {"role": "system", "content": system_prompt}
     ] + messages
-    
-    response = client.chat.completions.create(
+
+    # ------------------------------------------------------------------ #
+    # Use stream=True so TTS can begin as soon as the first sentence       #
+    # arrives — prevents the full-buffer latency spike on failover turns.  #
+    # ------------------------------------------------------------------ #
+    from services.orchestrator.llm_client import _get_sentence_re
+    sentence_re = _get_sentence_re()
+
+    stream = client.chat.completions.create(
         model=settings.openai_fallback_model or "gpt-4o-mini",
         messages=payload,
-        stream=False
+        stream=True,
     )
-    
-    full_text = response.choices[0].message.content or ""
+
+    collected_chunks: list[str] = []
+    sentence_buffer: list[str] = []
+    first_token_fired = False
+
+    for chunk in stream:
+        delta = chunk.choices[0].delta.content or ""
+        if not delta:
+            continue
+
+        collected_chunks.append(delta)
+        sentence_buffer.append(delta)
+
+        if not first_token_fired:
+            first_token_fired = True
+            latency_ms = int((time.time() - start_time) * 1000)
+            logger.log(
+                event_name="llm_first_token",
+                session_id=session_id,
+                turn_id=turn_id,
+                latency_ms=latency_ms,
+                detail={"provider": "openai_fallback"},
+            )
+
+        # Flush complete sentences to callback
+        if sentence_callback:
+            buffered = "".join(sentence_buffer)
+            parts = sentence_re.split(buffered)
+            if len(parts) > 1:
+                for sentence in parts[:-1]:
+                    sentence = sentence.strip()
+                    if sentence:
+                        sentence_callback(sentence)
+                sentence_buffer = [parts[-1]]
+
+    # Flush remaining buffer
+    remaining = "".join(sentence_buffer).strip()
+    if remaining and sentence_callback:
+        sentence_callback(remaining)
+
+    full_text = "".join(collected_chunks)
     total_latency_ms = int((time.time() - start_time) * 1000)
-    
+
     logger.log(
         event_name="llm_complete",
         session_id=session_id,
         turn_id=turn_id,
         latency_ms=total_latency_ms,
-        detail={"provider": "openai"}
+        detail={"provider": "openai_fallback", "streamed": True},
     )
     return full_text
-

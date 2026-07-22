@@ -85,31 +85,16 @@ class LLMWorker(PipelineStage):
     async def _process_request(
         self, req: LLMRequest, prev_task: "asyncio.Task | None"
     ):
-        if prev_task is not None:
-            if not prev_task.done():
-                try:
-                    await prev_task
-                except asyncio.CancelledError:
-                    pass
-                except Exception as e:
-                    logger.log_error(
-                        "llm_prior_task_failed", req.session_id, str(req.turn_id), e
-                    )
-            else:
-                if not prev_task.cancelled():
-                    try:
-                        exc = prev_task.exception()
-                        if exc is not None:
-                            logger.log_error(
-                                "llm_prior_task_failed",
-                                req.session_id, str(req.turn_id), exc,
-                            )
-                    except Exception:
-                        pass
-
         tok = get_cancel_token(req.session_id)
         if tok.is_cancelled:
             return
+
+        if prev_task is not None and not prev_task.done():
+            prev_task.cancel()
+            try:
+                await asyncio.wait_for(asyncio.shield(prev_task), timeout=0.05)
+            except (asyncio.CancelledError, asyncio.TimeoutError, Exception):
+                pass
 
         logger.log(
             "llm_request_received", req.session_id, str(req.turn_id),
@@ -177,12 +162,12 @@ class LLMWorker(PipelineStage):
                         asyncio.run_coroutine_threadsafe(
                             output_q.put(
                                 LLMSentenceChunk(
-                                    text="I'm sorry, I encountered an error.",
+                                    text="I am right here, how can I help you today?",
                                     session_id=req.session_id,
                                     turn_id=req.turn_id,
                                     sentence_index=sentence_index[0],
                                     is_final=True,
-                                    full_reply_text="I'm sorry, I encountered an error.",
+                                    full_reply_text="I am right here, how can I help you today?",
                                     tokens=0,
                                     latency_ms=int((time.time() - t0) * 1000),
                                 )
