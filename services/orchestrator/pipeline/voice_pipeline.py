@@ -136,6 +136,10 @@ class VoicePipeline:
     def register_playback_client(self, session_id: str, queue: asyncio.Queue):
         self.playback.register_client(session_id, queue)
 
+    async def prewarm_session(self, session_id: str):
+        if hasattr(self, "tts"):
+            await self.tts.prewarm_session(session_id)
+
     def unregister_playback_client(self, session_id: str):
         self.playback.unregister_client(session_id)
 
@@ -146,6 +150,9 @@ class VoicePipeline:
         tts_task = self.tts._session_tasks.pop(session_id, None)
         if tts_task and not tts_task.done():
             tts_task.cancel()
+
+        if hasattr(self, "tts"):
+            self.tts.cleanup_session_ws(session_id)
 
         self.fsm.cleanup_session(session_id)
 

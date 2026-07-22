@@ -332,15 +332,7 @@ def call_primary_streaming(
                         return "".join(collected_chunks)
                     sentence_callback(sentence)
                 sentence_buffer = [parts[-1]]
-            elif len(buffered.split()) >= 7 and (" " in delta or "\n" in delta):
-                # Fast chunking: if buffer hits 7 words without punctuation, flush on last space
-                words = buffered.split()
-                flush_text = " ".join(words[:-1])
-                sentence_buffer = [words[-1]]
-                if flush_text.strip():
-                    from services.orchestrator.async_pipeline import get_current_turn
-                    if not (cancellation_manager.is_cancelled(session_id) or int(turn_id) < get_current_turn(session_id)):
-                        sentence_callback(flush_text.strip())
+
 
     except Exception:
         failover.primary_circuit_breaker.record_failure(session_id, turn_id)

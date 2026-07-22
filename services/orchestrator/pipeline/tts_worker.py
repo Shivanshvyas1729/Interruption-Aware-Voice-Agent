@@ -4,33 +4,16 @@ pipeline/tts_worker.py — Text-to-Speech synthesis stage.
 Accepts TTSRequest items (one per sentence), synthesises audio via Cartesia,
 and emits AudioChunk items to the Playback worker.
 
-Key design decisions:
-  • Per-session task chaining preserves sentence ordering while allowing
-    concurrent sessions to synthesise in parallel on a thread pool.
-  • Shared per-turn WebSocket context (open_ws_context / speak_sentence_ws /
-    close_ws_context) allows Cartesia's streaming continuation: all sentences
-    in a turn share one WS so the voice prosody flows naturally.
-  • Fallback path: if the API key is missing or continuation is unsupported,
-    each sentence uses a fresh speak_stream_ws call.
-  • On any failure or cancellation a terminal AudioChunk(is_last=True, data=b"")
-    is always emitted so PlaybackWorker and FSMWorker never hang waiting.
-
-Telemetry emitted (consistent across all paths):
-  • tts_start         — when synthesis begins for a sentence
-  • tts_chunk         — for each audio chunk received from Cartesia
-  • tts_complete      — when the final sentence of a turn is done (normal path)
-  • tts_skipped_cancelled       — early cancel check before queuing task
-  • tts_skipped_cancelled_post_wait — cancel detected after prev-task await
-  • tts_skipped_stale_turn      — turn_id older than current active turn
-  • error             — on exception (all error paths)
+Delegates all socket lifecycle, pre-warming, context creation, and connection pooling
+to the dedicated TTSConnectionManager.
 """
 
 import asyncio
 import time
-from typing import Any
 from common.config.settings import get_settings
 from common.logging.logger import get_logger
 from services.edge_auth.telemetry_bus import telemetry_bus
+from services.orchestrator.tts_connection_manager import get_connection_manager
 from .base import PipelineStage
 from .messages import TTSRequest, AudioChunk
 from .cancel_token import get_cancel_token, get_current_turn
@@ -43,7 +26,6 @@ class TTSWorker(PipelineStage):
         super().__init__("tts")
         self.input: asyncio.Queue = asyncio.Queue()
         self.output: asyncio.Queue = asyncio.Queue()
-        self._ws_sessions: dict[str, Any] = {}
         self._session_tasks: dict[str, asyncio.Task] = {}
         self.executor = None
 
@@ -55,16 +37,23 @@ class TTSWorker(PipelineStage):
             max_workers=max_workers, thread_name_prefix="tts_worker"
         )
         super().start()
+        get_connection_manager().start()
 
     async def stop(self):
         await super().stop()
         if self.executor:
             self.executor.shutdown(wait=False)
-        from services.orchestrator.tts_client import close_ws_context
-        for turn_key, (ws, _) in list(self._ws_sessions.items()):
-            session_id = turn_key.rsplit(":", 1)[0]
-            close_ws_context(ws, session_id, "shutdown")
-        self._ws_sessions.clear()
+        get_connection_manager().shutdown()
+
+    def cleanup_session_ws(self, session_id: str) -> None:
+        get_connection_manager().cleanup(session_id)
+
+    async def prewarm_session(self, session_id: str) -> None:
+        if not self.executor:
+            return
+        loop = asyncio.get_running_loop()
+        conn_mgr = get_connection_manager()
+        await loop.run_in_executor(self.executor, conn_mgr.prewarm, session_id, self.executor)
 
     async def run(self):
         while not self._cancel_event.is_set():
@@ -135,11 +124,6 @@ class TTSWorker(PipelineStage):
                 "tts_skipped_cancelled_post_wait",
                 req.session_id, str(req.turn_id), detail={},
             )
-            turn_key = f"{req.session_id}:{req.turn_id}"
-            if turn_key in self._ws_sessions:
-                from services.orchestrator.tts_client import close_ws_context
-                ws, _ = self._ws_sessions.pop(turn_key)
-                close_ws_context(ws, req.session_id, str(req.turn_id))
             return
 
         current_turn = get_current_turn(req.session_id)
@@ -148,11 +132,6 @@ class TTSWorker(PipelineStage):
                 "tts_skipped_stale_turn", req.session_id, str(req.turn_id),
                 detail={"current_turn": current_turn},
             )
-            turn_key = f"{req.session_id}:{req.turn_id}"
-            if turn_key in self._ws_sessions:
-                from services.orchestrator.tts_client import close_ws_context
-                ws, _ = self._ws_sessions.pop(turn_key)
-                close_ws_context(ws, req.session_id, str(req.turn_id))
             return
 
         try:
@@ -201,14 +180,11 @@ class TTSWorker(PipelineStage):
         loop: asyncio.AbstractEventLoop,
     ) -> None:
         from services.orchestrator.tts_client import (
-            _ws_continuation_supported,
-            open_ws_context,
             speak_sentence_ws,
-            close_ws_context,
             speak_stream_ws,
         )
         start_time = time.time()
-        turn_key = f"{req.session_id}:{req.turn_id}"
+        conn_mgr = get_connection_manager()
         loop.call_soon_threadsafe(
             telemetry_bus.push,
             "tts_start",
@@ -236,7 +212,7 @@ class TTSWorker(PipelineStage):
                 loop,
             )
 
-        use_fallback = mock or (_ws_continuation_supported is False)
+        use_fallback = mock or conn_mgr.is_continuation_failed(req.session_id)
         if use_fallback:
             try:
                 speak_stream_ws(
@@ -271,32 +247,28 @@ class TTSWorker(PipelineStage):
                 )
             return
 
-        # --- Real Cartesia path: shared WS context per turn ---
+        # --- Real Cartesia path: persistent WS connection via Connection Manager ---
         failed = False
         try:
-            if turn_key not in self._ws_sessions:
-                try:
-                    ws, ctx = open_ws_context(req.session_id, str(req.turn_id))
-                    self._ws_sessions[turn_key] = (ws, ctx)
-                except Exception as conn_err:
-                    logger.log_error(
-                        "tts_ws_open_failed", req.session_id, str(req.turn_id),
-                        conn_err,
+            try:
+                ws, ctx = conn_mgr.acquire(req.session_id, str(req.turn_id))
+            except Exception as conn_err:
+                logger.log_error(
+                    "tts_ws_open_failed", req.session_id, str(req.turn_id),
+                    conn_err,
+                )
+                speak_stream_ws(
+                    req.session_id, str(req.turn_id), req.text, chunk_callback
+                )
+                tok = get_cancel_token(req.session_id)
+                if req.is_final_sentence and not tok.is_cancelled:
+                    asyncio.run_coroutine_threadsafe(
+                        self.output.put(
+                            AudioChunk(b"", req.session_id, req.turn_id, True)
+                        ),
+                        loop,
                     )
-                    speak_stream_ws(
-                        req.session_id, str(req.turn_id), req.text, chunk_callback
-                    )
-                    tok = get_cancel_token(req.session_id)
-                    if req.is_final_sentence and not tok.is_cancelled:
-                        asyncio.run_coroutine_threadsafe(
-                            self.output.put(
-                                AudioChunk(b"", req.session_id, req.turn_id, True)
-                            ),
-                            loop,
-                        )
-                    return
-
-            _, ctx = self._ws_sessions[turn_key]
+                return
 
             try:
                 speak_sentence_ws(
@@ -308,8 +280,7 @@ class TTSWorker(PipelineStage):
                     continue_=not req.is_final_sentence,
                 )
             except (TypeError, AttributeError):
-                import services.orchestrator.tts_client as _tc
-                _tc._ws_continuation_supported = False
+                conn_mgr.mark_continuation_failed(req.session_id)
                 failed = True
                 raise
 
@@ -345,7 +316,6 @@ class TTSWorker(PipelineStage):
 
         finally:
             tok = get_cancel_token(req.session_id)
-            should_close = req.is_final_sentence or tok.is_cancelled or failed
-            if should_close and turn_key in self._ws_sessions:
-                ws, _ = self._ws_sessions.pop(turn_key)
-                close_ws_context(ws, req.session_id, str(req.turn_id))
+            conn_mgr.release(
+                req.session_id, failed=failed, cancelled=tok.is_cancelled
+            )

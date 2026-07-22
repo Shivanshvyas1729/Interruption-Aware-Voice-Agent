@@ -691,6 +691,7 @@ async def websocket_stream(websocket: WebSocket):
                     cancel_token.reset()
                     
                     pipeline.register_playback_client(session_id, audio_queue)
+                    await pipeline.prewarm_session(session_id)
                     
                     await pipeline.submit_transcript(session_id, text)
                     logger.log("transcript_submitted", session_id, "system", detail={"text_len": len(text)})

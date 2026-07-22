@@ -5,7 +5,34 @@ from common.config.settings import get_settings
 from common.config.voice_settings import get as vc_get
 from common.logging.logger import get_logger
 
+import threading
+from requests.adapters import HTTPAdapter
+
 logger = get_logger("cartesia-tts")
+
+_cartesia_clients = {}
+_client_lock = threading.Lock()
+_requests_session = None
+_session_lock = threading.Lock()
+
+def get_cartesia_client(api_key: str):
+    with _client_lock:
+        if api_key not in _cartesia_clients:
+            from cartesia import Cartesia
+            _cartesia_clients[api_key] = Cartesia(api_key=api_key)
+        return _cartesia_clients[api_key]
+
+def get_requests_session() -> requests.Session:
+    global _requests_session
+    with _session_lock:
+        if _requests_session is None:
+            s = requests.Session()
+            adapter = HTTPAdapter(pool_connections=200, pool_maxsize=200)
+            s.mount("http://", adapter)
+            s.mount("https://", adapter)
+            _requests_session = s
+        return _requests_session
+
 
 def _mock_silence_bytes():
     silence_len = vc_get("tts.mock_chunk_silence_bytes", 16000)
@@ -47,8 +74,7 @@ def speak(session_id: str, turn_id: str, text: str) -> bytes:
         return b""
 
     # Real call using cartesia client
-    from cartesia import Cartesia
-    client = Cartesia(api_key=api_key)
+    client = get_cartesia_client(api_key)
     
     response = client.tts.bytes(
         model_id=vc_get("tts.model_id", "sonic-3.5"),
@@ -128,8 +154,7 @@ def speak_stream(session_id: str, turn_id: str, text: str, chunk_callback) -> No
     if cancellation_manager.is_cancelled(session_id) or int(turn_id) < get_current_turn(session_id):
         return
 
-    from cartesia import Cartesia
-    client = Cartesia(api_key=api_key)
+    client = get_cartesia_client(api_key)
     
     response = client.tts.bytes(
         model_id=vc_get("tts.model_id", "sonic-3.5"),
@@ -179,7 +204,7 @@ def kill(session_id: str) -> None:
     port = vc_get("ports.test_media_gateway", 8031) if settings.env == "test" else vc_get("ports.media_gateway", 8001)
     host = vc_get("urls.media_gateway_host", "127.0.0.1")
     try:
-        requests.post(
+        get_requests_session().post(
             f"http://{host}:{port}/tts-control",
             json={"session_id": session_id, "action": "stop"},
             timeout=vc_get("tts.kill_timeout_s", 1)
@@ -214,9 +239,8 @@ def speak_stream_ws(session_id: str, turn_id: str, text: str, chunk_callback) ->
     if cancellation_manager.is_cancelled(session_id) or int(turn_id) < get_current_turn(session_id):
         return
 
-    from cartesia import Cartesia
     try:
-        client = Cartesia(api_key=api_key)
+        client = get_cartesia_client(api_key)
         ws = client.tts.websocket_connect().enter()
     except Exception as e:
         logger.log_error("tts_ws_connect_failed", session_id, turn_id, e)
@@ -307,22 +331,19 @@ def speak_stream_ws(session_id: str, turn_id: str, text: str, chunk_callback) ->
 _ws_continuation_supported: Optional[bool] = None
 
 
-def open_ws_context(session_id: str, turn_id: str):
+def open_ws_context(session_id: str, turn_id: Optional[str] = None):
     """
-    Open a Cartesia WebSocket and create a turn-scoped context.
+    Open a Cartesia WebSocket and create a session-scoped context.
 
     Returns (ws, ctx) — the caller is responsible for calling close_ws_context()
-    when the turn is complete, cancelled, or when an exception occurs.
-
-    Raises on connection failure (caller should fall back to speak_stream_ws).
+    when the session ends or when an exception occurs.
     """
-    from cartesia import Cartesia
     settings = get_settings()
     api_key = settings.cartesia_api_key
 
-    client = Cartesia(api_key=api_key)
+    client = get_cartesia_client(api_key)
     ws = client.tts.websocket_connect().enter()
-    context_id = f"{session_id}:{turn_id}"
+    context_id = f"session_{session_id}"
     ctx = ws.context(
         context_id=context_id,
         model_id=vc_get("tts.model_id", "sonic-3.5"),
@@ -358,20 +379,15 @@ def speak_sentence_ws(
     raised — the caller (TTSWorker._tts_sync) catches it, sets
     _ws_continuation_supported=False, and re-calls speak_stream_ws directly.
     """
-    global _ws_continuation_supported
-
     from services.orchestrator.cancellation_manager import cancellation_manager
     if cancellation_manager.is_cancelled(session_id):
         return
 
-    # Probe once: try the push with continue_ kwarg.
-    # TypeError/AttributeError → SDK doesn't support it → fall through to caller.
+    start_time = time.time()
+
     try:
         ws_ctx.push(text, continue_=continue_)
-        if _ws_continuation_supported is None:
-            _ws_continuation_supported = True
     except (TypeError, AttributeError) as probe_err:
-        _ws_continuation_supported = False
         logger.log(
             event_name="tts_ws_continuation_unsupported",
             session_id=session_id,
@@ -381,7 +397,6 @@ def speak_sentence_ws(
         raise  # TTSWorker catches this to degrade gracefully
 
     first_audio_logged = False
-    start_time = time.time()
 
     for event in ws_ctx.receive():
         if cancellation_manager.is_cancelled(session_id):

@@ -138,22 +138,19 @@ class LLMWorker(PipelineStage):
                 if idx >= max_sentences:
                     return
                 sentence_index[0] += 1
-                if pending[0] is not None:
-                    prev_idx, prev_text = pending[0]
-                    if not tok.is_cancelled:
-                        asyncio.run_coroutine_threadsafe(
-                            output_q.put(
-                                LLMSentenceChunk(
-                                    text=prev_text,
-                                    session_id=req.session_id,
-                                    turn_id=req.turn_id,
-                                    sentence_index=prev_idx,
-                                    is_final=False,
-                                )
-                            ),
-                            loop,
-                        )
-                pending[0] = (idx, sentence_text)
+                if not tok.is_cancelled:
+                    asyncio.run_coroutine_threadsafe(
+                        output_q.put(
+                            LLMSentenceChunk(
+                                text=sentence_text,
+                                session_id=req.session_id,
+                                turn_id=req.turn_id,
+                                sentence_index=idx,
+                                is_final=False,
+                            )
+                        ),
+                        loop,
+                    )
 
             def _llm_streaming_task() -> str:
                 try:
@@ -196,25 +193,38 @@ class LLMWorker(PipelineStage):
 
                 if not tok.is_cancelled:
                     tokens = estimate_tokens(full_text)
-                    if pending[0] is not None:
-                        final_idx, final_text = pending[0]
+                    if sentence_index[0] == 0 and full_text.strip():
+                        asyncio.run_coroutine_threadsafe(
+                            output_q.put(
+                                LLMSentenceChunk(
+                                    text=full_text.strip(),
+                                    session_id=req.session_id,
+                                    turn_id=req.turn_id,
+                                    sentence_index=0,
+                                    is_final=True,
+                                    full_reply_text=full_text,
+                                    tokens=tokens,
+                                    latency_ms=int((time.time() - t0) * 1000),
+                                )
+                            ),
+                            loop,
+                        ).result()
                     else:
-                        final_idx, final_text = 0, full_text
-                    asyncio.run_coroutine_threadsafe(
-                        output_q.put(
-                            LLMSentenceChunk(
-                                text=final_text,
-                                session_id=req.session_id,
-                                turn_id=req.turn_id,
-                                sentence_index=final_idx,
-                                is_final=True,
-                                full_reply_text=full_text,
-                                tokens=tokens,
-                                latency_ms=int((time.time() - t0) * 1000),
-                            )
-                        ),
-                        loop,
-                    ).result()
+                        asyncio.run_coroutine_threadsafe(
+                            output_q.put(
+                                LLMSentenceChunk(
+                                    text="",
+                                    session_id=req.session_id,
+                                    turn_id=req.turn_id,
+                                    sentence_index=sentence_index[0],
+                                    is_final=True,
+                                    full_reply_text=full_text,
+                                    tokens=tokens,
+                                    latency_ms=int((time.time() - t0) * 1000),
+                                )
+                            ),
+                            loop,
+                        ).result()
 
                 return full_text
 

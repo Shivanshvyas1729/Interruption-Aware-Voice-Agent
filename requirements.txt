@@ -16,6 +16,7 @@ uvicorn
 livekit-api
 deepgram-sdk
 cartesia[websockets]
+
 groq
 
 # --- Phase 2 ---
